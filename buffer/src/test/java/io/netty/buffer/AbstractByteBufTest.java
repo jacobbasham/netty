@@ -2430,6 +2430,48 @@ public abstract class AbstractByteBufTest {
         releasedBuffer().nioBuffers(0, 1);
     }
 
+    @Test
+    public void testArrayAfterRelease() {
+        ByteBuf buf = releasedBuffer();
+        if (buf.hasArray()) {
+            try {
+                buf.array();
+                fail();
+            } catch (IllegalReferenceCountException e) {
+                // expected
+            }
+        }
+    }
+
+    @Test
+    public void testMemoryAddressAfterRelease() {
+        ByteBuf buf = releasedBuffer();
+        if (buf.hasMemoryAddress()) {
+            try {
+                buf.memoryAddress();
+                fail();
+            } catch (IllegalReferenceCountException e) {
+                // expected
+            }
+        }
+    }
+
+    @Test
+    public void testSliceRelease() {
+        ByteBuf buf = newBuffer(8);
+        assertEquals(1, buf.refCnt());
+        assertTrue(buf.slice().release());
+        assertEquals(0, buf.refCnt());
+    }
+
+    @Test
+    public void testDuplicateRelease() {
+        ByteBuf buf = newBuffer(8);
+        assertEquals(1, buf.refCnt());
+        assertTrue(buf.duplicate().release());
+        assertEquals(0, buf.refCnt());
+    }
+
     // Test-case trying to reproduce:
     // https://github.com/netty/netty/issues/2843
     @Test
@@ -2442,6 +2484,16 @@ public abstract class AbstractByteBufTest {
     @Test
     public void testRefCnt2() throws Exception {
         testRefCnt0(true);
+    }
+
+    @Test
+    public void testEmptyNioBuffers() throws Exception {
+        ByteBuf buffer = releaseLater(newBuffer(8));
+        buffer.clear();
+        assertFalse(buffer.isReadable());
+        ByteBuffer[] nioBuffers = buffer.nioBuffers();
+        assertEquals(1, nioBuffers.length);
+        assertFalse(nioBuffers[0].hasRemaining());
     }
 
     private void testRefCnt0(final boolean parameter) throws Exception {

@@ -40,6 +40,7 @@ import static io.netty.util.ReferenceCountUtil.*;
 public class CorsHandler extends ChannelHandlerAdapter {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(CorsHandler.class);
+    private static final String ANY_ORIGIN = "*";
     private final CorsConfig config;
 
     private HttpRequest request;
@@ -65,7 +66,7 @@ public class CorsHandler extends ChannelHandlerAdapter {
     }
 
     private void handlePreflight(final ChannelHandlerContext ctx, final HttpRequest request) {
-        final HttpResponse response = new DefaultFullHttpResponse(request.protocolVersion(), OK);
+        final HttpResponse response = new DefaultFullHttpResponse(request.protocolVersion(), OK, true, true);
         if (setOrigin(response)) {
             setAllowMethods(response);
             setAllowHeaders(response);
@@ -140,7 +141,7 @@ public class CorsHandler extends ChannelHandlerAdapter {
     }
 
     private static void setAnyOrigin(final HttpResponse response) {
-        setOrigin(response, "*");
+        setOrigin(response, ANY_ORIGIN);
     }
 
     private static void setOrigin(final HttpResponse response, final CharSequence origin) {
@@ -148,7 +149,8 @@ public class CorsHandler extends ChannelHandlerAdapter {
     }
 
     private void setAllowCredentials(final HttpResponse response) {
-        if (config.isCredentialsAllowed()) {
+        if (config.isCredentialsAllowed()
+                && !response.headers().get(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN).equals(ANY_ORIGIN)) {
             response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
         }
     }

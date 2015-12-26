@@ -44,9 +44,9 @@ public interface Http2ConnectionDecoder extends Closeable {
         Builder lifecycleManager(Http2LifecycleManager lifecycleManager);
 
         /**
-         * Sets the {@link Http2InboundFlowController} to be used when building the decoder.
+         * Gets the {@link Http2LifecycleManager} to be used when building the decoder.
          */
-        Builder inboundFlow(Http2InboundFlowController inboundFlow);
+        Http2LifecycleManager lifecycleManager();
 
         /**
          * Sets the {@link Http2FrameReader} to be used when building the decoder.
@@ -73,6 +73,11 @@ public interface Http2ConnectionDecoder extends Closeable {
      * Provides direct access to the underlying connection.
      */
     Http2Connection connection();
+
+    /**
+     * Provides the local flow controller for managing inbound traffic.
+     */
+    Http2LocalFlowController flowController();
 
     /**
      * Provides direct access to the underlying frame listener.

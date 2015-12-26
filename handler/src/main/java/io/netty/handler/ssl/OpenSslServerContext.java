@@ -15,18 +15,27 @@
  */
 package io.netty.handler.ssl;
 
-import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufInputStream;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
-import org.apache.tomcat.jni.Pool;
+import org.apache.tomcat.jni.CertificateVerifier;
 import org.apache.tomcat.jni.SSL;
 import org.apache.tomcat.jni.SSLContext;
 
-import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLException;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 import java.io.File;
+import java.security.KeyFactory;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import static io.netty.util.internal.ObjectUtil.*;
@@ -34,44 +43,10 @@ import static io.netty.util.internal.ObjectUtil.*;
 /**
  * A server-side {@link SslContext} which uses OpenSSL's SSL/TLS implementation.
  */
-public final class OpenSslServerContext extends SslContext {
-
+public final class OpenSslServerContext extends OpenSslContext {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(OpenSslServerContext.class);
-    private static final List<String> DEFAULT_CIPHERS;
 
-    static {
-        List<String> ciphers = new ArrayList<String>();
-        // XXX: Make sure to sync this list with JdkSslEngineFactory.
-        Collections.addAll(
-                ciphers,
-                "ECDHE-RSA-AES128-GCM-SHA256",
-                "ECDHE-RSA-RC4-SHA",
-                "ECDHE-RSA-AES128-SHA",
-                "ECDHE-RSA-AES256-SHA",
-                "AES128-GCM-SHA256",
-                "RC4-SHA",
-                "RC4-MD5",
-                "AES128-SHA",
-                "AES256-SHA",
-                "DES-CBC3-SHA");
-        DEFAULT_CIPHERS = Collections.unmodifiableList(ciphers);
-
-        if (logger.isDebugEnabled()) {
-            logger.debug("Default cipher suite (OpenSSL): " + ciphers);
-        }
-    }
-
-    private final long aprPool;
-
-    private final List<String> ciphers = new ArrayList<String>();
-    private final List<String> unmodifiableCiphers = Collections.unmodifiableList(ciphers);
-    private final long sessionCacheSize;
-    private final long sessionTimeout;
-    private final OpenSslApplicationProtocolNegotiator apn;
-
-    /** The OpenSSL SSL_CTX object */
-    private final long ctx;
-    private final OpenSslSessionStats stats;
+    private final OpenSslServerSessionContext sessionContext;
 
     /**
      * Creates a new instance.
@@ -92,7 +67,8 @@ public final class OpenSslServerContext extends SslContext {
      *                    {@code null} if it's not password-protected.
      */
     public OpenSslServerContext(File certChainFile, File keyFile, String keyPassword) throws SSLException {
-        this(certChainFile, keyFile, keyPassword, null, OpenSslDefaultApplicationProtocolNegotiator.INSTANCE, 0, 0);
+        this(certChainFile, keyFile, keyPassword, null, null,
+            OpenSslDefaultApplicationProtocolNegotiator.INSTANCE, 0, 0);
     }
 
     /**
@@ -114,7 +90,31 @@ public final class OpenSslServerContext extends SslContext {
             File certChainFile, File keyFile, String keyPassword,
             Iterable<String> ciphers, ApplicationProtocolConfig apn,
             long sessionCacheSize, long sessionTimeout) throws SSLException {
-        this(certChainFile, keyFile, keyPassword, ciphers, toNegotiator(apn, false), sessionCacheSize, sessionTimeout);
+        this(certChainFile, keyFile, keyPassword, null, ciphers,
+            toNegotiator(apn, false), sessionCacheSize, sessionTimeout);
+    }
+
+    /**
+     * Creates a new instance.
+     *
+     * @param certChainFile an X.509 certificate chain file in PEM format
+     * @param keyFile a PKCS#8 private key file in PEM format
+     * @param keyPassword the password of the {@code keyFile}.
+     *                    {@code null} if it's not password-protected.
+     * @param ciphers the cipher suites to enable, in the order of preference.
+     *                {@code null} to use the default cipher suites.
+     * @param config Application protocol config.
+     * @param sessionCacheSize the size of the cache used for storing SSL session objects.
+     *                         {@code 0} to use the default value.
+     * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
+     *                       {@code 0} to use the default value.
+     */
+    public OpenSslServerContext(
+            File certChainFile, File keyFile, String keyPassword, TrustManagerFactory trustManagerFactory,
+            Iterable<String> ciphers, ApplicationProtocolConfig config,
+            long sessionCacheSize, long sessionTimeout) throws SSLException {
+        this(certChainFile, keyFile, keyPassword, trustManagerFactory, ciphers,
+                toNegotiator(config, true), sessionCacheSize, sessionTimeout);
     }
 
     /**
@@ -133,262 +133,131 @@ public final class OpenSslServerContext extends SslContext {
      *                       {@code 0} to use the default value.
      */
     public OpenSslServerContext(
-            File certChainFile, File keyFile, String keyPassword,
+            File certChainFile, File keyFile, String keyPassword, TrustManagerFactory trustManagerFactory,
             Iterable<String> ciphers, OpenSslApplicationProtocolNegotiator apn,
             long sessionCacheSize, long sessionTimeout) throws SSLException {
 
-        OpenSsl.ensureAvailability();
+         super(ciphers, apn, sessionCacheSize, sessionTimeout, SSL.SSL_MODE_SERVER);
+         OpenSsl.ensureAvailability();
 
         checkNotNull(certChainFile, "certChainFile");
         if (!certChainFile.isFile()) {
             throw new IllegalArgumentException("certChainFile is not a file: " + certChainFile);
         }
         checkNotNull(keyFile, "keyFile");
-        this.apn = checkNotNull(apn, "apn");
         if (!keyFile.isFile()) {
             throw new IllegalArgumentException("keyPath is not a file: " + keyFile);
         }
-        if (ciphers == null) {
-            ciphers = DEFAULT_CIPHERS;
-        }
-
         if (keyPassword == null) {
             keyPassword = "";
         }
 
-        for (String c: ciphers) {
-            if (c == null) {
-                break;
-            }
-            this.ciphers.add(c);
-        }
-
-        // Allocate a new APR pool.
-        aprPool = Pool.create(0);
-
         // Create a new SSL_CTX and configure it.
         boolean success = false;
         try {
-            synchronized (OpenSslServerContext.class) {
-                try {
-                    ctx = SSLContext.make(aprPool, SSL.SSL_PROTOCOL_ALL, SSL.SSL_MODE_SERVER);
-                } catch (Exception e) {
-                    throw new SSLException("failed to create an SSL_CTX", e);
-                }
-
-                SSLContext.setOptions(ctx, SSL.SSL_OP_ALL);
-                SSLContext.setOptions(ctx, SSL.SSL_OP_NO_SSLv2);
-                SSLContext.setOptions(ctx, SSL.SSL_OP_NO_SSLv3);
-                SSLContext.setOptions(ctx, SSL.SSL_OP_CIPHER_SERVER_PREFERENCE);
-                SSLContext.setOptions(ctx, SSL.SSL_OP_SINGLE_ECDH_USE);
-                SSLContext.setOptions(ctx, SSL.SSL_OP_SINGLE_DH_USE);
-                SSLContext.setOptions(ctx, SSL.SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
-
-                /* List the ciphers that the client is permitted to negotiate. */
-                try {
-                    // Convert the cipher list into a colon-separated string.
-                    StringBuilder cipherBuf = new StringBuilder();
-                    for (String c: this.ciphers) {
-                        cipherBuf.append(c);
-                        cipherBuf.append(':');
-                    }
-                    cipherBuf.setLength(cipherBuf.length() - 1);
-
-                    SSLContext.setCipherSuite(ctx, cipherBuf.toString());
-                } catch (SSLException e) {
-                    throw e;
-                } catch (Exception e) {
-                    throw new SSLException("failed to set cipher suite: " + this.ciphers, e);
-                }
-
+            synchronized (OpenSslContext.class) {
                 /* Set certificate verification policy. */
-                SSLContext.setVerify(ctx, SSL.SSL_CVERIFY_NONE, 10);
+                SSLContext.setVerify(ctx, SSL.SSL_CVERIFY_NONE, VERIFY_DEPTH);
+
+                /* Load the certificate chain. We must skip the first cert when server mode */
+                if (!SSLContext.setCertificateChainFile(ctx, certChainFile.getPath(), true)) {
+                    long error = SSL.getLastErrorNumber();
+                    if (OpenSsl.isError(error)) {
+                        String err = SSL.getErrorString(error);
+                        throw new SSLException(
+                                "failed to set certificate chain: " + certChainFile + " (" + err + ')');
+                    }
+                }
 
                 /* Load the certificate file and private key. */
                 try {
                     if (!SSLContext.setCertificate(
                             ctx, certChainFile.getPath(), keyFile.getPath(), keyPassword, SSL.SSL_AIDX_RSA)) {
-                        throw new SSLException("failed to set certificate: " +
-                                certChainFile + " and " + keyFile + " (" + SSL.getLastError() + ')');
+                        long error = SSL.getLastErrorNumber();
+                        if (OpenSsl.isError(error)) {
+                            String err = SSL.getErrorString(error);
+                            throw new SSLException("failed to set certificate: " +
+                                    certChainFile + " and " + keyFile + " (" + err + ')');
+                        }
                     }
                 } catch (SSLException e) {
                     throw e;
                 } catch (Exception e) {
                     throw new SSLException("failed to set certificate: " + certChainFile + " and " + keyFile, e);
                 }
+                try {
+                    KeyStore ks = KeyStore.getInstance("JKS");
+                    ks.load(null, null);
+                    CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                    KeyFactory rsaKF = KeyFactory.getInstance("RSA");
+                    KeyFactory dsaKF = KeyFactory.getInstance("DSA");
 
-                /* Load the certificate chain. We must skip the first cert since it was loaded above. */
-                if (!SSLContext.setCertificateChainFile(ctx, certChainFile.getPath(), true)) {
-                    String error = SSL.getLastError();
-                    if (!error.startsWith(OpenSsl.IGNORABLE_ERROR_PREFIX)) {
-                        throw new SSLException(
-                                "failed to set certificate chain: " + certChainFile + " (" + SSL.getLastError() + ')');
+                    ByteBuf encodedKeyBuf = PemReader.readPrivateKey(keyFile);
+                    byte[] encodedKey = new byte[encodedKeyBuf.readableBytes()];
+                    encodedKeyBuf.readBytes(encodedKey).release();
+
+                    char[] keyPasswordChars = keyPassword.toCharArray();
+                    PKCS8EncodedKeySpec encodedKeySpec = generateKeySpec(keyPasswordChars, encodedKey);
+
+                    PrivateKey key;
+                    try {
+                        key = rsaKF.generatePrivate(encodedKeySpec);
+                    } catch (InvalidKeySpecException ignore) {
+                        key = dsaKF.generatePrivate(encodedKeySpec);
                     }
-                }
 
-                /* Set next protocols for next protocol negotiation extension, if specified */
-                List<String> protocols = apn.protocols();
-                if (!protocols.isEmpty()) {
-                    // Convert the protocol list into a comma-separated string.
-                    StringBuilder nextProtocolBuf = new StringBuilder();
-                    for (int i = 0; i < protocols.size(); ++i) {
-                        nextProtocolBuf.append(protocols.get(i));
-                        nextProtocolBuf.append(',');
+                    List<Certificate> certChain = new ArrayList<Certificate>();
+                    ByteBuf[] certs = PemReader.readCertificates(certChainFile);
+                    try {
+                        for (ByteBuf buf: certs) {
+                            certChain.add(cf.generateCertificate(new ByteBufInputStream(buf)));
+                        }
+                    } finally {
+                        for (ByteBuf buf: certs) {
+                            buf.release();
+                        }
                     }
-                    nextProtocolBuf.setLength(nextProtocolBuf.length() - 1);
 
-                    SSLContext.setNextProtos(ctx, nextProtocolBuf.toString());
-                }
+                    ks.setKeyEntry("key", key, keyPasswordChars, certChain.toArray(new Certificate[certChain.size()]));
 
-                /* Set session cache size, if specified */
-                if (sessionCacheSize > 0) {
-                    this.sessionCacheSize = sessionCacheSize;
-                    SSLContext.setSessionCacheSize(ctx, sessionCacheSize);
-                } else {
-                    // Get the default session cache size using SSLContext.setSessionCacheSize()
-                    this.sessionCacheSize = sessionCacheSize = SSLContext.setSessionCacheSize(ctx, 20480);
-                    // Revert the session cache size to the default value.
-                    SSLContext.setSessionCacheSize(ctx, sessionCacheSize);
-                }
+                    if (trustManagerFactory == null) {
+                        // Mimic the way SSLContext.getInstance(KeyManager[], null, null) works
+                        trustManagerFactory = TrustManagerFactory.getInstance(
+                                TrustManagerFactory.getDefaultAlgorithm());
+                        trustManagerFactory.init((KeyStore) null);
+                    } else {
+                        trustManagerFactory.init(ks);
+                    }
 
-                /* Set session timeout, if specified */
-                if (sessionTimeout > 0) {
-                    this.sessionTimeout = sessionTimeout;
-                    SSLContext.setSessionCacheTimeout(ctx, sessionTimeout);
-                } else {
-                    // Get the default session timeout using SSLContext.setSessionCacheTimeout()
-                    this.sessionTimeout = sessionTimeout = SSLContext.setSessionCacheTimeout(ctx, 300);
-                    // Revert the session timeout to the default value.
-                    SSLContext.setSessionCacheTimeout(ctx, sessionTimeout);
+                    final X509TrustManager manager = chooseTrustManager(trustManagerFactory.getTrustManagers());
+                    SSLContext.setCertVerifyCallback(ctx, new CertificateVerifier() {
+                        @Override
+                        public boolean verify(long ssl, byte[][] chain, String auth) {
+                            X509Certificate[] peerCerts = certificates(chain);
+                            try {
+                                manager.checkClientTrusted(peerCerts, auth);
+                                return true;
+                            } catch (Exception e) {
+                                logger.debug("verification of certificate failed", e);
+                            }
+                            return false;
+                        }
+                    });
+                } catch (Exception e) {
+                    throw new SSLException("unable to setup trustmanager", e);
                 }
             }
+            sessionContext = new OpenSslServerSessionContext(ctx);
             success = true;
         } finally {
             if (!success) {
                 destroyPools();
             }
         }
-
-        stats = new OpenSslSessionStats(ctx);
     }
 
     @Override
-    public boolean isClient() {
-        return false;
-    }
-
-    @Override
-    public List<String> cipherSuites() {
-        return unmodifiableCiphers;
-    }
-
-    @Override
-    public long sessionCacheSize() {
-        return sessionCacheSize;
-    }
-
-    @Override
-    public long sessionTimeout() {
-        return sessionTimeout;
-    }
-
-    @Override
-    public ApplicationProtocolNegotiator applicationProtocolNegotiator() {
-        return apn;
-    }
-
-    /**
-     * Returns the {@code SSL_CTX} object of this context.
-     */
-    public long context() {
-        return ctx;
-    }
-
-    /**
-     * Returns the stats of this context.
-     */
-    public OpenSslSessionStats stats() {
-        return stats;
-    }
-
-    /**
-     * Returns a new server-side {@link javax.net.ssl.SSLEngine} with the current configuration.
-     */
-    @Override
-    public SSLEngine newEngine(ByteBufAllocator alloc) {
-        List<String> protocols = apn.protocols();
-        if (protocols.isEmpty()) {
-            return new OpenSslEngine(ctx, alloc, null);
-        } else {
-            return new OpenSslEngine(ctx, alloc, protocols.get(protocols.size() - 1));
-        }
-    }
-
-    @Override
-    public SSLEngine newEngine(ByteBufAllocator alloc, String peerHost, int peerPort) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Sets the SSL session ticket keys of this context.
-     */
-    public void setTicketKeys(byte[] keys) {
-        if (keys == null) {
-            throw new NullPointerException("keys");
-        }
-        SSLContext.setSessionTicketKeys(ctx, keys);
-    }
-
-    @Override
-    @SuppressWarnings("FinalizeDeclaration")
-    protected void finalize() throws Throwable {
-        super.finalize();
-        synchronized (OpenSslServerContext.class) {
-            if (ctx != 0) {
-                SSLContext.free(ctx);
-            }
-        }
-
-        destroyPools();
-    }
-
-    private void destroyPools() {
-        if (aprPool != 0) {
-            Pool.destroy(aprPool);
-        }
-    }
-
-    /**
-     * Translate a {@link ApplicationProtocolConfig} object to a
-     * {@link OpenSslApplicationProtocolNegotiator} object.
-     * @param config The configuration which defines the translation
-     * @param isServer {@code true} if a server {@code false} otherwise.
-     * @return The results of the translation
-     */
-    private static OpenSslApplicationProtocolNegotiator toNegotiator(ApplicationProtocolConfig config,
-            boolean isServer) {
-        if (config == null) {
-            return OpenSslDefaultApplicationProtocolNegotiator.INSTANCE;
-        }
-
-        switch(config.protocol()) {
-        case NONE:
-            return OpenSslDefaultApplicationProtocolNegotiator.INSTANCE;
-        case NPN:
-            if (isServer) {
-                switch(config.selectedListenerFailureBehavior()) {
-                case CHOOSE_MY_LAST_PROTOCOL:
-                    return new OpenSslNpnApplicationProtocolNegotiator(config.supportedProtocols());
-                default:
-                    throw new UnsupportedOperationException(new StringBuilder("OpenSSL provider does not support ")
-                    .append(config.selectedListenerFailureBehavior()).append(" behavior").toString());
-                }
-            } else {
-                throw new UnsupportedOperationException("OpenSSL provider does not support client mode");
-            }
-        default:
-            throw new UnsupportedOperationException(new StringBuilder("OpenSSL provider does not support ")
-            .append(config.protocol()).append(" protocol").toString());
-        }
+    public OpenSslServerSessionContext sessionContext() {
+        return sessionContext;
     }
 }

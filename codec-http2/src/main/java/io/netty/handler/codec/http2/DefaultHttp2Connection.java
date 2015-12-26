@@ -20,7 +20,10 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_PRIORITY_WEIGH
 import static io.netty.handler.codec.http2.Http2CodecUtil.MAX_WEIGHT;
 import static io.netty.handler.codec.http2.Http2CodecUtil.MIN_WEIGHT;
 import static io.netty.handler.codec.http2.Http2CodecUtil.immediateRemovalPolicy;
-import static io.netty.handler.codec.http2.Http2Exception.protocolError;
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.netty.handler.codec.http2.Http2Error.REFUSED_STREAM;
+import static io.netty.handler.codec.http2.Http2Exception.connectionError;
+import static io.netty.handler.codec.http2.Http2Exception.streamError;
 import static io.netty.handler.codec.http2.Http2Stream.State.CLOSED;
 import static io.netty.handler.codec.http2.Http2Stream.State.HALF_CLOSED_LOCAL;
 import static io.netty.handler.codec.http2.Http2Stream.State.HALF_CLOSED_REMOTE;
@@ -29,7 +32,6 @@ import static io.netty.handler.codec.http2.Http2Stream.State.OPEN;
 import static io.netty.handler.codec.http2.Http2Stream.State.RESERVED_LOCAL;
 import static io.netty.handler.codec.http2.Http2Stream.State.RESERVED_REMOTE;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
-import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http2.Http2StreamRemovalPolicy.Action;
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.collection.IntObjectMap;
@@ -37,9 +39,11 @@ import io.netty.util.collection.IntObjectMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -51,8 +55,8 @@ public class DefaultHttp2Connection implements Http2Connection {
     private final IntObjectMap<Http2Stream> streamMap = new IntObjectHashMap<Http2Stream>();
     private final ConnectionStream connectionStream = new ConnectionStream();
     private final Set<Http2Stream> activeStreams = new LinkedHashSet<Http2Stream>();
-    private final DefaultEndpoint localEndpoint;
-    private final DefaultEndpoint remoteEndpoint;
+    private final DefaultEndpoint<Http2LocalFlowController> localEndpoint;
+    private final DefaultEndpoint<Http2RemoteFlowController> remoteEndpoint;
     private final Http2StreamRemovalPolicy removalPolicy;
 
     /**
@@ -76,8 +80,8 @@ public class DefaultHttp2Connection implements Http2Connection {
     public DefaultHttp2Connection(boolean server, Http2StreamRemovalPolicy removalPolicy) {
 
         this.removalPolicy = checkNotNull(removalPolicy, "removalPolicy");
-        localEndpoint = new DefaultEndpoint(server);
-        remoteEndpoint = new DefaultEndpoint(!server);
+        localEndpoint = new DefaultEndpoint<Http2LocalFlowController>(server);
+        remoteEndpoint = new DefaultEndpoint<Http2RemoteFlowController>(!server);
 
         // Tell the removal policy how to remove a stream from this connection.
         removalPolicy.setAction(new Action() {
@@ -115,7 +119,7 @@ public class DefaultHttp2Connection implements Http2Connection {
     public Http2Stream requireStream(int streamId) throws Http2Exception {
         Http2Stream stream = stream(streamId);
         if (stream == null) {
-            throw protocolError("Stream does not exist %d", streamId);
+            throw connectionError(PROTOCOL_ERROR, "Stream does not exist %d", streamId);
         }
         return stream;
     }
@@ -136,12 +140,17 @@ public class DefaultHttp2Connection implements Http2Connection {
     }
 
     @Override
-    public Endpoint local() {
+    public void deactivate(Http2Stream stream) {
+      deactivateInternal((DefaultStream) stream);
+    }
+
+    @Override
+    public Endpoint<Http2LocalFlowController> local() {
         return localEndpoint;
     }
 
     @Override
-    public Endpoint remote() {
+    public Endpoint<Http2RemoteFlowController> remote() {
         return remoteEndpoint;
     }
 
@@ -151,13 +160,13 @@ public class DefaultHttp2Connection implements Http2Connection {
     }
 
     @Override
-    public Http2Stream createLocalStream(int streamId, boolean halfClosed) throws Http2Exception {
-        return local().createStream(streamId, halfClosed);
+    public Http2Stream createLocalStream(int streamId) throws Http2Exception {
+        return local().createStream(streamId);
     }
 
     @Override
-    public Http2Stream createRemoteStream(int streamId, boolean halfClosed) throws Http2Exception {
-        return remote().createStream(streamId, halfClosed);
+    public Http2Stream createRemoteStream(int streamId) throws Http2Exception {
+        return remote().createStream(streamId);
     }
 
     @Override
@@ -191,15 +200,30 @@ public class DefaultHttp2Connection implements Http2Connection {
         stream.parent().removeChild(stream);
     }
 
-    private void activate(DefaultStream stream) {
-        activeStreams.add(stream);
+    private void activateInternal(DefaultStream stream) {
+        if (activeStreams.add(stream)) {
+            // Update the number of active streams initiated by the endpoint.
+            stream.createdBy().numActiveStreams++;
 
-        // Update the number of active streams initiated by the endpoint.
-        stream.createdBy().numActiveStreams++;
+            // Notify the listeners.
+            for (Listener listener : listeners) {
+                listener.streamActive(stream);
+            }
+        }
+    }
 
-        // Notify the listeners.
-        for (Listener listener : listeners) {
-            listener.streamActive(stream);
+    private void deactivateInternal(DefaultStream stream) {
+        if (activeStreams.remove(stream)) {
+            // Update the number of active streams initiated by the endpoint.
+            stream.createdBy().numActiveStreams--;
+
+            // Notify the listeners.
+            for (Listener listener : listeners) {
+                listener.streamInactive(stream);
+            }
+
+            // Mark this stream for removal.
+            removalPolicy.markForRemoval(stream);
         }
     }
 
@@ -214,17 +238,11 @@ public class DefaultHttp2Connection implements Http2Connection {
         private IntObjectMap<DefaultStream> children = newChildMap();
         private int totalChildWeights;
         private boolean resetSent;
-        private boolean resetReceived;
-        private boolean endOfStreamSent;
-        private boolean endOfStreamReceived;
-        private Http2InboundFlowState inboundFlow;
-        private Http2FlowState outboundFlow;
-        private EmbeddedChannel decompressor;
-        private EmbeddedChannel compressor;
-        private Object data;
+        private PropertyMap data;
 
         DefaultStream(int id) {
             this.id = id;
+            data = new LazyPropertyMap(this);
         }
 
         @Override
@@ -235,39 +253,6 @@ public class DefaultHttp2Connection implements Http2Connection {
         @Override
         public final State state() {
             return state;
-        }
-
-        @Override
-        public boolean isEndOfStreamReceived() {
-            return endOfStreamReceived;
-        }
-
-        @Override
-        public Http2Stream endOfStreamReceived() {
-            endOfStreamReceived = true;
-            return this;
-        }
-
-        @Override
-        public boolean isEndOfStreamSent() {
-            return endOfStreamSent;
-        }
-
-        @Override
-        public Http2Stream endOfStreamSent() {
-            endOfStreamSent = true;
-            return this;
-        }
-
-        @Override
-        public boolean isResetReceived() {
-            return resetReceived;
-        }
-
-        @Override
-        public Http2Stream resetReceived() {
-            resetReceived = true;
-            return this;
         }
 
         @Override
@@ -282,65 +267,18 @@ public class DefaultHttp2Connection implements Http2Connection {
         }
 
         @Override
-        public boolean isReset() {
-            return resetSent || resetReceived;
+        public Object setProperty(Object key, Object value) {
+            return data.put(key, value);
         }
 
         @Override
-        public void data(Object data) {
-            this.data = data;
-        }
-
-        @SuppressWarnings("unchecked")
-        @Override
-        public <T> T data() {
-            return (T) data;
+        public <V> V getProperty(Object key) {
+            return data.get(key);
         }
 
         @Override
-        public void decompressor(EmbeddedChannel decompressor) {
-            if (this.decompressor != null && decompressor != null) {
-                throw new IllegalStateException("decompressor can not be reassigned");
-            }
-            this.decompressor = decompressor;
-        }
-
-        @Override
-        public EmbeddedChannel decompressor() {
-            return decompressor;
-        }
-
-        @Override
-        public void compressor(EmbeddedChannel compressor) {
-            if (this.compressor != null && compressor != null) {
-                throw new IllegalStateException("compressor can not be reassigned");
-            }
-            this.compressor = compressor;
-        }
-
-        @Override
-        public EmbeddedChannel compressor() {
-            return compressor;
-        }
-
-        @Override
-        public Http2InboundFlowState inboundFlow() {
-            return inboundFlow;
-        }
-
-        @Override
-        public void inboundFlow(Http2InboundFlowState state) {
-            inboundFlow = state;
-        }
-
-        @Override
-        public Http2FlowState outboundFlow() {
-            return outboundFlow;
-        }
-
-        @Override
-        public void outboundFlow(Http2FlowState state) {
-            outboundFlow = state;
+        public <V> V removeProperty(Object key) {
+            return data.remove(key);
         }
 
         @Override
@@ -407,9 +345,12 @@ public class DefaultHttp2Connection implements Http2Connection {
                         "Invalid weight: %d.  Must be between %d and %d (inclusive).", weight, MIN_WEIGHT, MAX_WEIGHT));
             }
 
-            // Get the parent stream.
-            DefaultStream newParent = (DefaultStream) requireStream(parentStreamId);
-            if (this == newParent) {
+            DefaultStream newParent = (DefaultStream) stream(parentStreamId);
+            if (newParent == null) {
+                // Streams can depend on other streams in the IDLE state. We must ensure
+                // the stream has been "created" in order to use it in the priority tree.
+                newParent = createdBy().createStream(parentStreamId);
+            } else if (this == newParent) {
                 throw new IllegalArgumentException("A stream cannot depend on itself");
             }
 
@@ -432,8 +373,11 @@ public class DefaultHttp2Connection implements Http2Connection {
         }
 
         @Override
-        public Http2Stream openForPush() throws Http2Exception {
+        public Http2Stream open(boolean halfClosed) throws Http2Exception {
             switch (state) {
+            case IDLE:
+                state = halfClosed ? isLocal() ? HALF_CLOSED_LOCAL : HALF_CLOSED_REMOTE : OPEN;
+                break;
             case RESERVED_LOCAL:
                 state = HALF_CLOSED_REMOTE;
                 break;
@@ -441,9 +385,10 @@ public class DefaultHttp2Connection implements Http2Connection {
                 state = HALF_CLOSED_LOCAL;
                 break;
             default:
-                throw protocolError("Attempting to open non-reserved stream for push");
+                throw streamError(id, PROTOCOL_ERROR, "Attempting to open a stream in an invalid state: " + state);
             }
-            activate(this);
+
+            activateInternal(this);
             return this;
         }
 
@@ -454,23 +399,8 @@ public class DefaultHttp2Connection implements Http2Connection {
             }
 
             state = CLOSED;
-            deactivate(this);
-
-            // Mark this stream for removal.
-            removalPolicy.markForRemoval(this);
+            deactivateInternal(this);
             return this;
-        }
-
-        private void deactivate(DefaultStream stream) {
-            activeStreams.remove(stream);
-
-            // Update the number of active streams initiated by the endpoint.
-            stream.createdBy().numActiveStreams--;
-
-            // Notify the listeners.
-            for (Listener listener : listeners) {
-                listener.streamInactive(stream);
-            }
         }
 
         @Override
@@ -521,8 +451,12 @@ public class DefaultHttp2Connection implements Http2Connection {
             return state == HALF_CLOSED_REMOTE || state == OPEN || state == RESERVED_LOCAL;
         }
 
-        final DefaultEndpoint createdBy() {
+        final DefaultEndpoint<? extends Http2FlowController> createdBy() {
             return localEndpoint.createdStreamId(id) ? localEndpoint : remoteEndpoint;
+        }
+
+        final boolean isLocal() {
+            return localEndpoint.createdStreamId(id);
         }
 
         final void weight(short weight) {
@@ -556,14 +490,12 @@ public class DefaultHttp2Connection implements Http2Connection {
             notifyParentChanging(child, this);
             child.parent = this;
 
-            if (exclusive) {
+            if (exclusive && !children.isEmpty()) {
                 // If it was requested that this child be the exclusive dependency of this node,
                 // move any previous children to the child node, becoming grand children
                 // of this node.
-                if (!children.isEmpty()) {
-                    for (DefaultStream grandchild : removeAllChildren().values()) {
-                        child.takeChild(grandchild, false, events);
-                    }
+                for (DefaultStream grandchild : removeAllChildren().values()) {
+                    child.takeChild(grandchild, false, events);
                 }
             }
 
@@ -597,6 +529,75 @@ public class DefaultHttp2Connection implements Http2Connection {
         }
     }
 
+    /**
+     * Allows the data map to be lazily initialized for {@link DefaultStream}.
+     */
+    private interface PropertyMap {
+        Object put(Object key, Object value);
+
+        <V> V get(Object key);
+
+        <V> V remove(Object key);
+    }
+
+    /**
+     * Provides actual {@link HashMap} functionality for {@link DefaultStream}'s application data.
+     */
+    private static final class DefaultProperyMap implements PropertyMap {
+        private final Map<Object, Object> data;
+
+        DefaultProperyMap(int initialSize) {
+            data = new HashMap<Object, Object>(initialSize);
+        }
+
+        @Override
+        public Object put(Object key, Object value) {
+            return data.put(key, value);
+        }
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public <V> V get(Object key) {
+            return (V) data.get(key);
+        }
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public <V> V remove(Object key) {
+            return (V) data.remove(key);
+        }
+    }
+
+    /**
+     * Provides the lazy initialization for the {@link DefaultStream} data map.
+     */
+    private static final class LazyPropertyMap implements PropertyMap {
+        private static final int DEFAULT_INITIAL_SIZE = 4;
+        private final DefaultStream stream;
+
+        LazyPropertyMap(DefaultStream stream) {
+            this.stream = stream;
+        }
+
+        @Override
+        public Object put(Object key, Object value) {
+            stream.data = new DefaultProperyMap(DEFAULT_INITIAL_SIZE);
+            return stream.data.put(key, value);
+        }
+
+        @Override
+        public <V> V get(Object key) {
+            stream.data = new DefaultProperyMap(DEFAULT_INITIAL_SIZE);
+            return stream.data.get(key);
+        }
+
+        @Override
+        public <V> V remove(Object key) {
+            stream.data = new DefaultProperyMap(DEFAULT_INITIAL_SIZE);
+            return stream.data.remove(key);
+        }
+    }
+
     private static IntObjectMap<DefaultStream> newChildMap() {
         return new IntObjectHashMap<DefaultStream>(4);
     }
@@ -604,7 +605,7 @@ public class DefaultHttp2Connection implements Http2Connection {
     /**
      * Allows a correlation to be made between a stream and its old parent before a parent change occurs
      */
-    private final class ParentChangedEvent {
+    private static final class ParentChangedEvent {
         private final Http2Stream stream;
         private final Http2Stream oldParent;
 
@@ -650,7 +651,7 @@ public class DefaultHttp2Connection implements Http2Connection {
      * Stream class representing the connection, itself.
      */
     private final class ConnectionStream extends DefaultStream {
-        private ConnectionStream() {
+        ConnectionStream() {
             super(CONNECTION_STREAM_ID);
         }
 
@@ -660,7 +661,7 @@ public class DefaultHttp2Connection implements Http2Connection {
         }
 
         @Override
-        public Http2Stream openForPush() {
+        public Http2Stream open(boolean halfClosed) {
             throw new UnsupportedOperationException();
         }
 
@@ -683,12 +684,13 @@ public class DefaultHttp2Connection implements Http2Connection {
     /**
      * Simple endpoint implementation.
      */
-    private final class DefaultEndpoint implements Endpoint {
+    private final class DefaultEndpoint<F extends Http2FlowController> implements Endpoint<F> {
         private final boolean server;
         private int nextStreamId;
         private int lastStreamCreated;
         private int lastKnownStream = -1;
         private boolean pushToAllowed = true;
+        private F flowController;
 
         /**
          * The maximum number of active streams allowed to be created by this endpoint.
@@ -733,24 +735,17 @@ public class DefaultHttp2Connection implements Http2Connection {
         }
 
         @Override
-        public DefaultStream createStream(int streamId, boolean halfClosed) throws Http2Exception {
+        public DefaultStream createStream(int streamId) throws Http2Exception {
             checkNewStreamAllowed(streamId);
 
             // Create and initialize the stream.
             DefaultStream stream = new DefaultStream(streamId);
-            if (halfClosed) {
-                stream.state = isLocal() ? HALF_CLOSED_LOCAL : HALF_CLOSED_REMOTE;
-            } else {
-                stream.state = OPEN;
-            }
 
             // Update the next and last stream IDs.
             nextStreamId = streamId + 2;
             lastStreamCreated = streamId;
 
-            // Register the stream and mark it as active.
             addStream(stream);
-            activate(stream);
             return stream;
         }
 
@@ -762,14 +757,15 @@ public class DefaultHttp2Connection implements Http2Connection {
         @Override
         public DefaultStream reservePushStream(int streamId, Http2Stream parent) throws Http2Exception {
             if (parent == null) {
-                throw protocolError("Parent stream missing");
+                throw connectionError(PROTOCOL_ERROR, "Parent stream missing");
             }
             if (isLocal() ? !parent.localSideOpen() : !parent.remoteSideOpen()) {
-                throw protocolError("Stream %d is not open for sending push promise", parent.id());
+                throw connectionError(PROTOCOL_ERROR, "Stream %d is not open for sending push promise", parent.id());
             }
             if (!opposite().allowPushTo()) {
-                throw protocolError("Server push not allowed to opposite endpoint.");
+                throw connectionError(PROTOCOL_ERROR, "Server push not allowed to opposite endpoint.");
             }
+            checkNewStreamAllowed(streamId);
 
             // Create and initialize the stream.
             DefaultStream stream = new DefaultStream(streamId);
@@ -851,17 +847,27 @@ public class DefaultHttp2Connection implements Http2Connection {
         }
 
         @Override
-        public Endpoint opposite() {
+        public F flowController() {
+            return flowController;
+        }
+
+        @Override
+        public void flowController(F flowController) {
+            this.flowController = checkNotNull(flowController, "flowController");
+        }
+
+        @Override
+        public Endpoint<? extends Http2FlowController> opposite() {
             return isLocal() ? remoteEndpoint : localEndpoint;
         }
 
         private void checkNewStreamAllowed(int streamId) throws Http2Exception {
             if (isGoAway()) {
-                throw protocolError("Cannot create a stream since the connection is going away");
+                throw connectionError(PROTOCOL_ERROR, "Cannot create a stream since the connection is going away");
             }
             verifyStreamId(streamId);
             if (!acceptingNewStreams()) {
-                throw protocolError("Maximum streams exceeded for this endpoint.");
+                throw connectionError(REFUSED_STREAM, "Maximum streams exceeded for this endpoint.");
             }
         }
 
@@ -870,11 +876,12 @@ public class DefaultHttp2Connection implements Http2Connection {
                 throw new Http2NoMoreStreamIdsException();
             }
             if (streamId < nextStreamId) {
-                throw protocolError("Request stream %d is behind the next expected stream %d", streamId, nextStreamId);
+                throw connectionError(PROTOCOL_ERROR, "Request stream %d is behind the next expected stream %d",
+                        streamId, nextStreamId);
             }
             if (!createdStreamId(streamId)) {
-                throw protocolError("Request stream %d is not correct for %s connection", streamId, server ? "server"
-                        : "client");
+                throw connectionError(PROTOCOL_ERROR, "Request stream %d is not correct for %s connection",
+                        streamId, server ? "server" : "client");
             }
         }
 

@@ -589,6 +589,7 @@ final class DefaultChannelPipeline implements ChannelPipeline {
 
     private void callHandlerAdded0(final AbstractChannelHandlerContext ctx) {
         try {
+            ctx.invokedThisChannelRead = false;
             ctx.handler().handlerAdded(ctx);
         } catch (Throwable t) {
             boolean removed = false;
@@ -811,20 +812,20 @@ final class DefaultChannelPipeline implements ChannelPipeline {
      */
     @Override
     public String toString() {
-        StringBuilder buf = new StringBuilder();
-        buf.append(StringUtil.simpleClassName(this));
-        buf.append('{');
+        StringBuilder buf = new StringBuilder()
+            .append(StringUtil.simpleClassName(this))
+            .append('{');
         AbstractChannelHandlerContext ctx = head.next;
         for (;;) {
             if (ctx == tail) {
                 break;
             }
 
-            buf.append('(');
-            buf.append(ctx.name());
-            buf.append(" = ");
-            buf.append(ctx.handler().getClass().getName());
-            buf.append(')');
+            buf.append('(')
+               .append(ctx.name())
+               .append(" = ")
+               .append(ctx.handler().getClass().getName())
+               .append(')');
 
             ctx = ctx.next;
             if (ctx == tail) {
@@ -849,18 +850,76 @@ final class DefaultChannelPipeline implements ChannelPipeline {
 
         // Remove all handlers sequentially if channel is closed and unregistered.
         if (!channel.isOpen()) {
-            teardownAll();
+            destroy();
         }
         return this;
     }
 
     /**
-     * Removes all handlers from the pipeline one by one from tail (exclusive) to head (inclusive) to trigger
-     * handlerRemoved().  Note that the tail handler is excluded because it's neither an outbound handler nor it
-     * does anything in handlerRemoved().
+     * Removes all handlers from the pipeline one by one from tail (exclusive) to head (exclusive) to trigger
+     * handlerRemoved().
+     *
+     * Note that we traverse up the pipeline ({@link #destroyUp(AbstractChannelHandlerContext)})
+     * before traversing down ({@link #destroyDown(Thread, AbstractChannelHandlerContext)}) so that
+     * the handlers are removed after all events are handled.
+     *
+     * See: https://github.com/netty/netty/issues/3156
      */
-    private void teardownAll() {
-        tail.prev.teardown();
+    private void destroy() {
+        destroyUp(head.next);
+    }
+
+    private void destroyUp(AbstractChannelHandlerContext ctx) {
+        final Thread currentThread = Thread.currentThread();
+        final AbstractChannelHandlerContext tail = this.tail;
+        for (;;) {
+            if (ctx == tail) {
+                destroyDown(currentThread, tail.prev);
+                break;
+            }
+
+            final EventExecutor executor = ctx.executor();
+            if (!executor.inEventLoop(currentThread)) {
+                final AbstractChannelHandlerContext finalCtx = ctx;
+                executor.unwrap().execute(new OneTimeTask() {
+                    @Override
+                    public void run() {
+                        destroyUp(finalCtx);
+                    }
+                });
+                break;
+            }
+
+            ctx = ctx.next;
+        }
+    }
+
+    private void destroyDown(Thread currentThread, AbstractChannelHandlerContext ctx) {
+        // We have reached at tail; now traverse backwards.
+        final AbstractChannelHandlerContext head = this.head;
+        for (;;) {
+            if (ctx == head) {
+                break;
+            }
+
+            final EventExecutor executor = ctx.executor();
+            if (executor.inEventLoop(currentThread)) {
+                synchronized (this) {
+                    remove0(ctx);
+                }
+            } else {
+                final AbstractChannelHandlerContext finalCtx = ctx;
+                executor.unwrap().execute(new OneTimeTask() {
+                    @Override
+                    public void run() {
+                        destroyDown(Thread.currentThread(), finalCtx);
+                    }
+                });
+                break;
+            }
+
+            ctx = ctx.prev;
+        }
     }
 
     @Override

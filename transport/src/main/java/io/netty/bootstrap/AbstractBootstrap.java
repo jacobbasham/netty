@@ -183,6 +183,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      * Allow to specify an initial attribute of the newly created {@link Channel}.  If the {@code value} is
      * {@code null}, the attribute of the specified {@code key} is removed.
      */
+    @SuppressWarnings("unchecked")
     public <T> B attr(AttributeKey<T> key, T value) {
         if (key == null) {
             throw new NullPointerException("key");
@@ -196,10 +197,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
                 attrs.put(key, value);
             }
         }
-
-        @SuppressWarnings("unchecked")
-        B b = (B) this;
-        return b;
+        return (B) this;
     }
 
     /**
@@ -286,7 +284,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         }
 
         if (regFuture.isDone()) {
-            // At this point we know that the registration was complete and succesful.
+            // At this point we know that the registration was complete and successful.
             ChannelPromise promise = channel.newPromise();
             doBind0(regFuture, channel, localAddress, promise);
             return promise;
@@ -406,42 +404,42 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
     @Override
     public String toString() {
-        StringBuilder buf = new StringBuilder();
-        buf.append(StringUtil.simpleClassName(this));
-        buf.append('(');
+        StringBuilder buf = new StringBuilder()
+            .append(StringUtil.simpleClassName(this))
+            .append('(');
         if (group != null) {
-            buf.append("group: ");
-            buf.append(StringUtil.simpleClassName(group));
-            buf.append(", ");
+            buf.append("group: ")
+               .append(StringUtil.simpleClassName(group))
+               .append(", ");
         }
         if (channelFactory != null) {
-            buf.append("channelFactory: ");
-            buf.append(channelFactory);
-            buf.append(", ");
+            buf.append("channelFactory: ")
+               .append(channelFactory)
+               .append(", ");
         }
         if (localAddress != null) {
-            buf.append("localAddress: ");
-            buf.append(localAddress);
-            buf.append(", ");
+            buf.append("localAddress: ")
+               .append(localAddress)
+               .append(", ");
         }
         synchronized (options) {
             if (!options.isEmpty()) {
-                buf.append("options: ");
-                buf.append(options);
-                buf.append(", ");
+                buf.append("options: ")
+                   .append(options)
+                   .append(", ");
             }
         }
         synchronized (attrs) {
             if (!attrs.isEmpty()) {
-                buf.append("attrs: ");
-                buf.append(attrs);
-                buf.append(", ");
+                buf.append("attrs: ")
+                   .append(attrs)
+                   .append(", ");
             }
         }
         if (handler != null) {
-            buf.append("handler: ");
-            buf.append(handler);
-            buf.append(", ");
+            buf.append("handler: ")
+               .append(handler)
+               .append(", ");
         }
         if (buf.charAt(buf.length() - 1) == '(') {
             buf.append(')');

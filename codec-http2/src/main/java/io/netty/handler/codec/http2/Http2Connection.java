@@ -91,7 +91,7 @@ public interface Http2Connection {
     /**
      * A view of the connection from one endpoint (local or remote).
      */
-    interface Endpoint {
+    interface Endpoint<F extends Http2FlowController> {
 
         /**
          * Returns the next valid streamId for this endpoint. If negative, the stream IDs are
@@ -114,29 +114,31 @@ public interface Http2Connection {
 
         /**
          * Creates a stream initiated by this endpoint. This could fail for the following reasons:
-         * <p/>
-         * - The requested stream ID is not the next sequential ID for this endpoint. <br>
-         * - The stream already exists. <br>
-         * - The number of concurrent streams is above the allowed threshold for this endpoint. <br>
-         * - The connection is marked as going away}. <br>
-         *
+         * <ul>
+         * <li>The requested stream ID is not the next sequential ID for this endpoint.</li>
+         * <li>The stream already exists.</li>
+         * <li>The number of concurrent streams is above the allowed threshold for this endpoint.</li>
+         * <li>The connection is marked as going away.</li>
+         * </ul>
+         * <p>
+         * The caller is expected to {@link Http2Stream#open(boolean)} the stream.
          * @param streamId The ID of the stream
-         * @param halfClosed if true, the stream is created in the half-closed state with respect to
-         *            this endpoint. Otherwise it's created in the open state.
+         * @see Http2Stream#open(boolean)
          */
-        Http2Stream createStream(int streamId, boolean halfClosed) throws Http2Exception;
+        Http2Stream createStream(int streamId) throws Http2Exception;
 
         /**
          * Creates a push stream in the reserved state for this endpoint and notifies all listeners.
          * This could fail for the following reasons:
-         * <p/>
-         * - Server push is not allowed to the opposite endpoint. <br>
-         * - The requested stream ID is not the next sequential stream ID for this endpoint. <br>
-         * - The number of concurrent streams is above the allowed threshold for this endpoint. <br>
-         * - The connection is marked as going away. <br>
-         * - The parent stream ID does not exist or is not open from the side sending the push
-         * promise. <br>
-         * - Could not set a valid priority for the new stream.
+         * <ul>
+         * <li>Server push is not allowed to the opposite endpoint.</li>
+         * <li>The requested stream ID is not the next sequential stream ID for this endpoint.</li>
+         * <li>The number of concurrent streams is above the allowed threshold for this endpoint.</li>
+         * <li>The connection is marked as going away.</li>
+         * <li>The parent stream ID does not exist or is not open from the side sending the push
+         * promise.</li>
+         * <li>Could not set a valid priority for the new stream.</li>
+         * </ul>
          *
          * @param streamId the ID of the push stream
          * @param parent the parent stream used to initiate the push stream.
@@ -187,9 +189,19 @@ public interface Http2Connection {
         int lastKnownStream();
 
         /**
+         * Gets the flow controller for this endpoint.
+         */
+        F flowController();
+
+        /**
+         * Sets the flow controller for this endpoint.
+         */
+        void flowController(F flowController);
+
+        /**
          * Gets the {@link Endpoint} opposite this one.
          */
-        Endpoint opposite();
+        Endpoint<? extends Http2FlowController> opposite();
     }
 
     /**
@@ -219,15 +231,25 @@ public interface Http2Connection {
     Http2Stream connectionStream();
 
     /**
-     * Gets the number of streams that are currently either open or half-closed.
+     * Gets the number of streams that actively in use. It is possible for a stream to be closed
+     * but still be considered active (e.g. there is still pending data to be written).
      */
     int numActiveStreams();
 
     /**
-     * Gets all streams that are currently either open or half-closed. The returned collection is
+     * Gets all streams that are actively in use. The returned collection is
      * sorted by priority.
      */
     Collection<Http2Stream> activeStreams();
+
+    /**
+     * Indicates that the given stream is no longer actively in use. If this stream was active,
+     * after calling this method it will no longer appear in the list returned by
+     * {@link #activeStreams()} and {@link #numActiveStreams()} will be decremented. In addition,
+     * all listeners will be notified of this event via
+     * {@link Listener#streamInactive(Http2Stream)}.
+     */
+    void deactivate(Http2Stream stream);
 
     /**
      * Indicates whether or not the local endpoint for this connection is the server.
@@ -237,22 +259,24 @@ public interface Http2Connection {
     /**
      * Gets a view of this connection from the local {@link Endpoint}.
      */
-    Endpoint local();
+    Endpoint<Http2LocalFlowController> local();
 
     /**
-     * Creates a new stream initiated by the local endpoint. See {@link Endpoint#createStream(int, boolean)}.
+     * Creates a new stream initiated by the local endpoint
+     * @see Endpoint#createStream(int)
      */
-    Http2Stream createLocalStream(int streamId, boolean halfClosed) throws Http2Exception;
+    Http2Stream createLocalStream(int streamId) throws Http2Exception;
 
     /**
      * Gets a view of this connection from the remote {@link Endpoint}.
      */
-    Endpoint remote();
+    Endpoint<Http2RemoteFlowController> remote();
 
     /**
-     * Creates a new stream initiated by the remote endpoint. See {@link Endpoint#createStream(int, boolean)}.
+     * Creates a new stream initiated by the remote endpoint.
+     * @see Endpoint#createStream(int)
      */
-    Http2Stream createRemoteStream(int streamId, boolean halfClosed) throws Http2Exception;
+    Http2Stream createRemoteStream(int streamId) throws Http2Exception;
 
     /**
      * Indicates whether or not a {@code GOAWAY} was received from the remote endpoint.

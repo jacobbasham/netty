@@ -17,7 +17,6 @@ package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.util.internal.StringUtil;
 
 
 /**
@@ -34,21 +33,31 @@ public class DefaultFullHttpResponse extends DefaultHttpResponse implements Full
     }
 
     public DefaultFullHttpResponse(HttpVersion version, HttpResponseStatus status, ByteBuf content) {
-        this(version, status, content, true);
+        this(version, status, content, false);
     }
 
     public DefaultFullHttpResponse(HttpVersion version, HttpResponseStatus status, boolean validateHeaders) {
-        this(version, status, Unpooled.buffer(0), validateHeaders);
+        this(version, status, Unpooled.buffer(0), validateHeaders, false);
+    }
+
+    public DefaultFullHttpResponse(HttpVersion version, HttpResponseStatus status, boolean validateHeaders,
+                                   boolean singleFieldHeaders) {
+        this(version, status, Unpooled.buffer(0), validateHeaders, singleFieldHeaders);
     }
 
     public DefaultFullHttpResponse(HttpVersion version, HttpResponseStatus status,
-                                   ByteBuf content, boolean validateHeaders) {
-        super(version, status, validateHeaders);
+                                   ByteBuf content, boolean singleFieldHeaders) {
+        this(version, status, content, true, singleFieldHeaders);
+    }
+
+    public DefaultFullHttpResponse(HttpVersion version, HttpResponseStatus status,
+                                   ByteBuf content, boolean validateHeaders, boolean singleFieldHeaders) {
+        super(version, status, validateHeaders, singleFieldHeaders);
         if (content == null) {
             throw new NullPointerException("content");
         }
         this.content = content;
-        trailingHeaders = new DefaultHttpHeaders(validateHeaders);
+        trailingHeaders = new DefaultHttpHeaders(validateHeaders, singleFieldHeaders);
         this.validateHeaders = validateHeaders;
     }
 
@@ -181,13 +190,6 @@ public class DefaultFullHttpResponse extends DefaultHttpResponse implements Full
 
     @Override
     public String toString() {
-        StringBuilder buf = new StringBuilder();
-        appendAll(buf);
-        buf.append(StringUtil.NEWLINE);
-        appendHeaders(buf, trailingHeaders());
-
-        // Remove the last newline.
-        buf.setLength(buf.length() - StringUtil.NEWLINE.length());
-        return buf.toString();
+        return HttpMessageUtil.appendFullResponse(new StringBuilder(256), this).toString();
     }
 }

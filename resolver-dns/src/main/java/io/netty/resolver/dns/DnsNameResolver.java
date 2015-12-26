@@ -87,6 +87,7 @@ public class DnsNameResolver extends SimpleNameResolver<InetSocketAddress> {
     private static final DnsQueryEncoder ENCODER = new DnsQueryEncoder();
 
     final Iterable<InetSocketAddress> nameServerAddresses;
+    final ChannelFuture bindFuture;
     final DatagramChannel ch;
 
     /**
@@ -248,12 +249,13 @@ public class DnsNameResolver extends SimpleNameResolver<InetSocketAddress> {
         }
 
         this.nameServerAddresses = nameServerAddresses;
-        ch = newChannel(channelFactory, localAddress);
+        bindFuture = newChannel(channelFactory, localAddress);
+        ch = (DatagramChannel) bindFuture.channel();
 
         setMaxPayloadSize(4096);
     }
 
-    private DatagramChannel newChannel(
+    private ChannelFuture newChannel(
             ChannelFactory<? extends DatagramChannel> channelFactory, InetSocketAddress localAddress) {
 
         Bootstrap b = new Bootstrap();
@@ -266,15 +268,15 @@ public class DnsNameResolver extends SimpleNameResolver<InetSocketAddress> {
             }
         });
 
-        DatagramChannel ch = (DatagramChannel) b.bind(localAddress).channel();
-        ch.closeFuture().addListener(new ChannelFutureListener() {
+        ChannelFuture bindFuture = b.bind(localAddress);
+        bindFuture.channel().closeFuture().addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture future) throws Exception {
                 clearCache();
             }
         });
 
-        return ch;
+        return bindFuture;
     }
 
     /**
@@ -640,12 +642,21 @@ public class DnsNameResolver extends SimpleNameResolver<InetSocketAddress> {
 
     @Override
     protected void doResolve(InetSocketAddress unresolvedAddress, Promise<InetSocketAddress> promise) throws Exception {
-        final String hostname = IDN.toASCII(unresolvedAddress.getHostString());
+        final String hostname = IDN.toASCII(hostname(unresolvedAddress));
         final int port = unresolvedAddress.getPort();
 
         final DnsNameResolverContext ctx = new DnsNameResolverContext(this, hostname, port, promise);
 
         ctx.resolve();
+    }
+
+    private static String hostname(InetSocketAddress addr) {
+        // InetSocketAddress.getHostString() is available since Java 7.
+        if (PlatformDependent.javaVersion() < 7) {
+            return addr.getHostName();
+        } else {
+            return addr.getHostString();
+        }
     }
 
     /**

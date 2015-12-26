@@ -140,10 +140,17 @@ public class HttpObjectAggregator
 
     @Override
     protected void finishAggregation(FullHttpMessage aggregated) throws Exception {
-        // Set the 'Content-Length' header.
-        aggregated.headers().set(
-                HttpHeaderNames.CONTENT_LENGTH,
-                String.valueOf(aggregated.content().readableBytes()));
+        // Set the 'Content-Length' header. If one isn't already set.
+        // This is important as HEAD responses will use a 'Content-Length' header which
+        // does not match the actual body, but the number of bytes that would be
+        // transmitted if a GET would have been used.
+        //
+        // See rfc2616 14.13 Content-Length
+        if (!HttpHeaderUtil.isContentLengthSet(aggregated)) {
+            aggregated.headers().set(
+                    HttpHeaderNames.CONTENT_LENGTH,
+                    String.valueOf(aggregated.content().readableBytes()));
+        }
     }
 
     @Override
@@ -163,7 +170,7 @@ public class HttpObjectAggregator
             // If the client started to send data already, close because it's impossible to recover.
             // If keep-alive is off and 'Expect: 100-continue' is missing, no need to leave the connection open.
             if (oversized instanceof FullHttpMessage ||
-                    (!HttpHeaderUtil.is100ContinueExpected(oversized) && !HttpHeaderUtil.isKeepAlive(oversized))) {
+                !HttpHeaderUtil.is100ContinueExpected(oversized) && !HttpHeaderUtil.isKeepAlive(oversized)) {
                 future.addListener(ChannelFutureListener.CLOSE);
             }
 
@@ -185,17 +192,23 @@ public class HttpObjectAggregator
         protected final HttpMessage message;
         private HttpHeaders trailingHeaders;
 
-        private AggregatedFullHttpMessage(HttpMessage message, ByteBuf content, HttpHeaders trailingHeaders) {
+        AggregatedFullHttpMessage(HttpMessage message, ByteBuf content, HttpHeaders trailingHeaders) {
             super(content);
             this.message = message;
             this.trailingHeaders = trailingHeaders;
         }
+
         @Override
         public HttpHeaders trailingHeaders() {
-            return trailingHeaders;
+            HttpHeaders trailingHeaders = this.trailingHeaders;
+            if (trailingHeaders == null) {
+                return EmptyHttpHeaders.INSTANCE;
+            } else {
+                return trailingHeaders;
+            }
         }
 
-        public void setTrailingHeaders(HttpHeaders trailingHeaders) {
+        void setTrailingHeaders(HttpHeaders trailingHeaders) {
             this.trailingHeaders = trailingHeaders;
         }
 
@@ -258,7 +271,7 @@ public class HttpObjectAggregator
 
     private static final class AggregatedFullHttpRequest extends AggregatedFullHttpMessage implements FullHttpRequest {
 
-        private AggregatedFullHttpRequest(HttpRequest request, ByteBuf content, HttpHeaders trailingHeaders) {
+        AggregatedFullHttpRequest(HttpRequest request, ByteBuf content, HttpHeaders trailingHeaders) {
             super(request, content, trailingHeaders);
         }
 
@@ -357,11 +370,17 @@ public class HttpObjectAggregator
             super.setProtocolVersion(version);
             return this;
         }
+
+        @Override
+        public String toString() {
+            return HttpMessageUtil.appendFullRequest(new StringBuilder(256), this).toString();
+        }
     }
 
     private static final class AggregatedFullHttpResponse extends AggregatedFullHttpMessage
             implements FullHttpResponse {
-        private AggregatedFullHttpResponse(HttpResponse message, ByteBuf content, HttpHeaders trailingHeaders) {
+
+        AggregatedFullHttpResponse(HttpResponse message, ByteBuf content, HttpHeaders trailingHeaders) {
             super(message, content, trailingHeaders);
         }
 
@@ -448,6 +467,11 @@ public class HttpObjectAggregator
         public FullHttpResponse touch() {
             super.touch();
             return this;
+        }
+
+        @Override
+        public String toString() {
+            return HttpMessageUtil.appendFullResponse(new StringBuilder(256), this).toString();
         }
     }
 }

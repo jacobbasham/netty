@@ -19,25 +19,31 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.connectionPrefaceBuf;
 import static io.netty.handler.codec.http2.Http2CodecUtil.getEmbeddedHttp2Exception;
 import static io.netty.handler.codec.http2.Http2Error.INTERNAL_ERROR;
 import static io.netty.handler.codec.http2.Http2Error.NO_ERROR;
-import static io.netty.handler.codec.http2.Http2Exception.protocolError;
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.netty.handler.codec.http2.Http2Exception.connectionError;
+import static io.netty.handler.codec.http2.Http2Exception.isStreamError;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.http2.Http2Exception.CompositeStreamException;
+import io.netty.handler.codec.http2.Http2Exception.StreamException;
 
 import java.util.Collection;
 import java.util.List;
 
 /**
- * Provides the default implementation for processing inbound frame events
- * and delegates to a {@link Http2FrameListener}
+ * Provides the default implementation for processing inbound frame events and delegates to a
+ * {@link Http2FrameListener}
  * <p>
  * This class will read HTTP/2 frames and delegate the events to a {@link Http2FrameListener}
  * <p>
- * This interface enforces inbound flow control functionality through {@link Http2InboundFlowController}
+ * This interface enforces inbound flow control functionality through
+ * {@link Http2LocalFlowController}
  */
 public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http2LifecycleManager {
     private final Http2ConnectionDecoder decoder;
@@ -56,18 +62,10 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
 
     public Http2ConnectionHandler(Http2Connection connection, Http2FrameReader frameReader,
             Http2FrameWriter frameWriter, Http2FrameListener listener) {
-        this(connection, frameReader, frameWriter, new DefaultHttp2InboundFlowController(
-                connection, frameWriter), new DefaultHttp2OutboundFlowController(connection,
-                frameWriter), listener);
-    }
-
-    public Http2ConnectionHandler(Http2Connection connection, Http2FrameReader frameReader,
-            Http2FrameWriter frameWriter, Http2InboundFlowController inboundFlow,
-            Http2OutboundFlowController outboundFlow, Http2FrameListener listener) {
         this(DefaultHttp2ConnectionDecoder.newBuilder().connection(connection)
-                .frameReader(frameReader).inboundFlow(inboundFlow).listener(listener),
+                .frameReader(frameReader).listener(listener),
              DefaultHttp2ConnectionEncoder.newBuilder().connection(connection)
-                .frameWriter(frameWriter).outboundFlow(outboundFlow));
+                .frameWriter(frameWriter));
     }
 
     /**
@@ -79,13 +77,18 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
         checkNotNull(decoderBuilder, "decoderBuilder");
         checkNotNull(encoderBuilder, "encoderBuilder");
 
+        if (encoderBuilder.lifecycleManager() != decoderBuilder.lifecycleManager()) {
+            throw new IllegalArgumentException("Encoder and Decoder must share a lifecycle manager");
+        } else if (encoderBuilder.lifecycleManager() == null) {
+            encoderBuilder.lifecycleManager(this);
+            decoderBuilder.lifecycleManager(this);
+        }
+
         // Build the encoder.
-        encoderBuilder.lifecycleManager(this);
         encoder = checkNotNull(encoderBuilder.build(), "encoder");
 
         // Build the decoder.
         decoderBuilder.encoder(encoder);
-        decoderBuilder.lifecycleManager(this);
         decoder = checkNotNull(decoderBuilder.build(), "decoder");
 
         // Verify that the encoder and decoder use the same connection.
@@ -115,14 +118,14 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
      */
     public void onHttpClientUpgrade() throws Http2Exception {
         if (connection().isServer()) {
-            throw protocolError("Client-side HTTP upgrade requested for a server");
+            throw connectionError(PROTOCOL_ERROR, "Client-side HTTP upgrade requested for a server");
         }
         if (prefaceSent || decoder.prefaceReceived()) {
-            throw protocolError("HTTP upgrade must occur before HTTP/2 preface is sent or received");
+            throw connectionError(PROTOCOL_ERROR, "HTTP upgrade must occur before HTTP/2 preface is sent or received");
         }
 
         // Create a local stream used for the HTTP cleartext upgrade.
-        connection().createLocalStream(HTTP_UPGRADE_STREAM_ID, true);
+        connection().createLocalStream(HTTP_UPGRADE_STREAM_ID).open(true);
     }
 
     /**
@@ -131,23 +134,22 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
      */
     public void onHttpServerUpgrade(Http2Settings settings) throws Http2Exception {
         if (!connection().isServer()) {
-            throw protocolError("Server-side HTTP upgrade requested for a client");
+            throw connectionError(PROTOCOL_ERROR, "Server-side HTTP upgrade requested for a client");
         }
         if (prefaceSent || decoder.prefaceReceived()) {
-            throw protocolError("HTTP upgrade must occur before HTTP/2 preface is sent or received");
+            throw connectionError(PROTOCOL_ERROR, "HTTP upgrade must occur before HTTP/2 preface is sent or received");
         }
 
         // Apply the settings but no ACK is necessary.
         encoder.remoteSettings(settings);
 
         // Create a stream in the half-closed state.
-        connection().createRemoteStream(HTTP_UPGRADE_STREAM_ID, true);
+        connection().createRemoteStream(HTTP_UPGRADE_STREAM_ID).open(true);
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        // The channel just became active - send the connection preface to the remote
-        // endpoint.
+        // The channel just became active - send the connection preface to the remote endpoint.
         sendPreface(ctx);
         super.channelActive(ctx);
     }
@@ -166,7 +168,7 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
 
     @Override
     public void close(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
-     // Avoid NotYetConnectedException
+        // Avoid NotYetConnectedException
         if (!ctx.channel().isActive()) {
             ctx.close(promise);
             return;
@@ -254,14 +256,22 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
      * @param future the future after which to close the channel.
      */
     @Override
-    public void closeStream(Http2Stream stream, ChannelFuture future) {
+    public void closeStream(final Http2Stream stream, ChannelFuture future) {
         stream.close();
 
-        // If this connection is closing and there are no longer any
-        // active streams, close after the current operation completes.
-        if (closeListener != null && connection().numActiveStreams() == 0) {
-            future.addListener(closeListener);
-        }
+        future.addListener(new ChannelFutureListener() {
+          @Override
+          public void operationComplete(ChannelFuture future) throws Exception {
+            // Deactivate this stream.
+            connection().deactivate(stream);
+
+            // If this connection is closing and there are no longer any
+            // active streams, close after the current operation completes.
+            if (closeListener != null && connection().numActiveStreams() == 0) {
+                closeListener.operationComplete(future);
+            }
+          }
+        });
     }
 
     /**
@@ -270,8 +280,13 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
     @Override
     public void onException(ChannelHandlerContext ctx, Throwable cause) {
         Http2Exception embedded = getEmbeddedHttp2Exception(cause);
-        if (embedded instanceof Http2StreamException) {
-            onStreamError(ctx, cause, (Http2StreamException) embedded);
+        if (isStreamError(embedded)) {
+            onStreamError(ctx, cause, (StreamException) embedded);
+        } else if (embedded instanceof CompositeStreamException) {
+            CompositeStreamException compositException = (CompositeStreamException) embedded;
+            for (StreamException streamException : compositException) {
+                onStreamError(ctx, cause, streamException);
+            }
         } else {
             onConnectionError(ctx, cause, embedded);
         }
@@ -299,9 +314,9 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
      *
      * @param ctx the channel context
      * @param cause the exception that was caught
-     * @param http2Ex the {@link Http2StreamException} that is embedded in the causality chain.
+     * @param http2Ex the {@link StreamException} that is embedded in the causality chain.
      */
-    protected void onStreamError(ChannelHandlerContext ctx, Throwable cause, Http2StreamException http2Ex) {
+    protected void onStreamError(ChannelHandlerContext ctx, Throwable cause, StreamException http2Ex) {
         writeRstStream(ctx, http2Ex.streamId(), http2Ex.error().code(), ctx.newPromise());
     }
 
@@ -368,7 +383,7 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
         try {
             // Read the remaining of the client preface string if we haven't already.
             // If this is a client endpoint, always returns true.
-            if (!readClientPrefaceString(ctx, in)) {
+            if (!readClientPrefaceString(in)) {
                 // Still processing the client preface.
                 return;
             }
@@ -417,7 +432,7 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
      * @return {@code true} if processing of the client preface string is complete. Since client preface strings can
      *         only be received by servers, returns true immediately for client endpoints.
      */
-    private boolean readClientPrefaceString(ChannelHandlerContext ctx, ByteBuf in) throws Http2Exception {
+    private boolean readClientPrefaceString(ByteBuf in) throws Http2Exception {
         if (clientPrefaceString == null) {
             return true;
         }
@@ -433,7 +448,7 @@ public class Http2ConnectionHandler extends ByteToMessageDecoder implements Http
 
         // If the input so far doesn't match the preface, break the connection.
         if (bytesRead == 0 || !prefaceSlice.equals(sourceSlice)) {
-            throw protocolError("HTTP/2 client preface string missing or corrupt.");
+            throw connectionError(PROTOCOL_ERROR, "HTTP/2 client preface string missing or corrupt.");
         }
 
         if (!clientPrefaceString.isReadable()) {

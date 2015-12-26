@@ -23,7 +23,7 @@ import io.netty.channel.ChannelPromise;
 /**
  * Handler for outbound HTTP/2 traffic.
  */
-public interface Http2ConnectionEncoder extends Http2FrameWriter, Http2OutboundFlowController {
+public interface Http2ConnectionEncoder extends Http2FrameWriter {
 
     /**
      * Builder for new instances of {@link Http2ConnectionEncoder}.
@@ -41,14 +41,14 @@ public interface Http2ConnectionEncoder extends Http2FrameWriter, Http2OutboundF
         Builder lifecycleManager(Http2LifecycleManager lifecycleManager);
 
         /**
+         * Gets the {@link Http2LifecycleManager} to be used when building the encoder.
+         */
+        Http2LifecycleManager lifecycleManager();
+
+        /**
          * Sets the {@link Http2FrameWriter} to be used when building the encoder.
          */
         Builder frameWriter(Http2FrameWriter frameWriter);
-
-        /**
-         * Sets the {@link Http2OutboundFlowController} to be used when building the encoder.
-         */
-        Builder outboundFlow(Http2OutboundFlowController outboundFlow);
 
         /**
          * Creates a new encoder instance.
@@ -60,6 +60,11 @@ public interface Http2ConnectionEncoder extends Http2FrameWriter, Http2OutboundF
      * Provides direct access to the underlying connection.
      */
     Http2Connection connection();
+
+    /**
+     * Provides the remote flow controller for managing outbound traffic.
+     */
+    Http2RemoteFlowController flowController();
 
     /**
      * Provides direct access to the underlying frame writer object.

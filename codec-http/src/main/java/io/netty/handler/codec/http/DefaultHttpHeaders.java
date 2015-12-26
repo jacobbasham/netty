@@ -118,6 +118,8 @@ public class DefaultHttpHeaders extends DefaultTextHeaders implements HttpHeader
             if ((character & HIGHEST_INVALID_VALUE_CHAR_MASK) == 0) {
                 // Check the absolutely prohibited characters.
                 switch (character) {
+                case 0x0: // NULL
+                    throw new IllegalArgumentException("a header value contains a prohibited character '\0': " + seq);
                 case 0x0b: // Vertical tab
                     throw new IllegalArgumentException("a header value contains a prohibited character '\\v': " + seq);
                 case '\f':
@@ -234,11 +236,17 @@ public class DefaultHttpHeaders extends DefaultTextHeaders implements HttpHeader
     }
 
     public DefaultHttpHeaders(boolean validate) {
-        this(true, validate? VALIDATE_NAME_CONVERTER : NO_VALIDATE_NAME_CONVERTER);
+        this(true, validate? VALIDATE_NAME_CONVERTER : NO_VALIDATE_NAME_CONVERTER, false);
     }
 
-    protected DefaultHttpHeaders(boolean validate, NameConverter<CharSequence> nameConverter) {
-        super(true, validate ? VALIDATE_OBJECT_CONVERTER : NO_VALIDATE_OBJECT_CONVERTER, nameConverter);
+    protected DefaultHttpHeaders(boolean validate, boolean singleHeaderFields) {
+        this(true, validate? VALIDATE_NAME_CONVERTER : NO_VALIDATE_NAME_CONVERTER, singleHeaderFields);
+    }
+
+    protected DefaultHttpHeaders(boolean validate, NameConverter<CharSequence> nameConverter,
+                                 boolean singleHeaderFields) {
+        super(true, validate ? VALIDATE_OBJECT_CONVERTER : NO_VALIDATE_OBJECT_CONVERTER, nameConverter,
+                singleHeaderFields);
     }
 
     @Override
@@ -322,6 +330,12 @@ public class DefaultHttpHeaders extends DefaultTextHeaders implements HttpHeader
     @Override
     public HttpHeaders addDouble(CharSequence name, double value) {
         super.addDouble(name, value);
+        return this;
+    }
+
+    @Override
+    public HttpHeaders addTimeMillis(CharSequence name, long value) {
+        super.addTimeMillis(name, value);
         return this;
     }
 
@@ -412,6 +426,12 @@ public class DefaultHttpHeaders extends DefaultTextHeaders implements HttpHeader
     @Override
     public HttpHeaders setDouble(CharSequence name, double value) {
         super.setDouble(name, value);
+        return this;
+    }
+
+    @Override
+    public HttpHeaders setTimeMillis(CharSequence name, long value) {
+        super.setTimeMillis(name, value);
         return this;
     }
 

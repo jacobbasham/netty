@@ -15,8 +15,6 @@
 
 package io.netty.handler.codec.http2;
 
-import io.netty.channel.embedded.EmbeddedChannel;
-
 import java.util.Collection;
 
 /**
@@ -48,9 +46,18 @@ public interface Http2Stream {
     State state();
 
     /**
-     * If this is a reserved push stream, opens the stream for push in one direction.
+     * Add this stream to {@link Http2Connection#activeStreams()} and transition state to:
+     * <ul>
+     * <li>{@link State#OPEN} if {@link #state()} is {@link State#IDLE} and {@code halfClosed} is {@code false}.</li>
+     * <li>{@link State#HALF_CLOSED_LOCAL} if {@link #state()} is {@link State#IDLE} and {@code halfClosed}
+     * is {@code true} and the stream is local.</li>
+     * <li>{@link State#HALF_CLOSED_REMOTE} if {@link #state()} is {@link State#IDLE} and {@code halfClosed}
+     * is {@code true} and the stream is remote.</li>
+     * <li>{@link State#RESERVED_LOCAL} if {@link #state()} is {@link State#HALF_CLOSED_REMOTE}.</li>
+     * <li>{@link State#RESERVED_REMOTE} if {@link #state()} is {@link State#HALF_CLOSED_LOCAL}.</li>
+     * </ul>
      */
-    Http2Stream openForPush() throws Http2Exception;
+    Http2Stream open(boolean halfClosed) throws Http2Exception;
 
     /**
      * Closes the stream.
@@ -70,41 +77,6 @@ public interface Http2Stream {
     Http2Stream closeRemoteSide();
 
     /**
-     * Indicates whether a frame with {@code END_STREAM} set was received from the remote endpoint
-     * for this stream.
-     */
-    boolean isEndOfStreamReceived();
-
-    /**
-     * Sets the flag indicating that a frame with {@code END_STREAM} set was received from the
-     * remote endpoint for this stream.
-     */
-    Http2Stream endOfStreamReceived();
-
-    /**
-     * Indicates whether a frame with {@code END_STREAM} set was sent to the remote endpoint for
-     * this stream.
-     */
-    boolean isEndOfStreamSent();
-
-    /**
-     * Sets the flag indicating that a frame with {@code END_STREAM} set was sent to the remote
-     * endpoint for this stream.
-     */
-    Http2Stream endOfStreamSent();
-
-    /**
-     * Indicates whether a {@code RST_STREAM} frame has been received from the remote endpoint for this stream.
-     */
-    boolean isResetReceived();
-
-    /**
-     * Sets the flag indicating that a {@code RST_STREAM} frame has been received from the remote endpoint
-     * for this stream. This does not affect the stream state.
-     */
-    Http2Stream resetReceived();
-
-    /**
      * Indicates whether a {@code RST_STREAM} frame has been sent from the local endpoint for this stream.
      */
     boolean isResetSent();
@@ -114,12 +86,6 @@ public interface Http2Stream {
      * for this stream. This does not affect the stream state.
      */
     Http2Stream resetSent();
-
-    /**
-     * Indicates whether or not this stream has been reset. This is a short form for
-     * {@link #isResetSent()} || {@link #isResetReceived()}.
-     */
-    boolean isReset();
 
     /**
      * Indicates whether the remote side of this stream is open (i.e. the state is either
@@ -135,53 +101,19 @@ public interface Http2Stream {
 
     /**
      * Associates the application-defined data with this stream.
+     * @return The value that was previously associated with {@code key}, or {@code null} if there was none.
      */
-    void data(Object data);
+    Object setProperty(Object key, Object value);
 
     /**
      * Returns application-defined data if any was associated with this stream.
      */
-    <T> T data();
+    <V> V getProperty(Object key);
 
     /**
-     * Associate an object responsible for decompressing data frames for this stream
+     * Returns and removes application-defined data if any was associated with this stream.
      */
-    void decompressor(EmbeddedChannel decompressor);
-
-    /**
-     * Get the object capable of decompressing data frames for this stream
-     */
-    EmbeddedChannel decompressor();
-
-    /**
-     * Associate an object responsible for compressing data frames for this stream
-     */
-    void compressor(EmbeddedChannel decompressor);
-
-    /**
-     * Get the object capable of compressing data frames for this stream
-     */
-    EmbeddedChannel compressor();
-
-    /**
-     * Gets the in-bound flow control state for this stream.
-     */
-    Http2InboundFlowState inboundFlow();
-
-    /**
-     * Sets the in-bound flow control state for this stream.
-     */
-    void inboundFlow(Http2InboundFlowState state);
-
-    /**
-     * Gets the out-bound flow control window for this stream.
-     */
-    Http2FlowState outboundFlow();
-
-    /**
-     * Sets the out-bound flow control window for this stream.
-     */
-    void outboundFlow(Http2FlowState state);
+    <V> V removeProperty(Object key);
 
     /**
      * Updates an priority for this stream. Calling this method may affect the straucture of the
@@ -196,8 +128,7 @@ public interface Http2Stream {
      *            This only applies if the stream has a parent.
      * @return this stream.
      */
-    Http2Stream setPriority(int parentStreamId, short weight, boolean exclusive)
-            throws Http2Exception;
+    Http2Stream setPriority(int parentStreamId, short weight, boolean exclusive) throws Http2Exception;
 
     /**
      * Indicates whether or not this stream is the root node of the priority tree.

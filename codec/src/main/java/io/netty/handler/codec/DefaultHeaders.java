@@ -79,24 +79,7 @@ public class DefaultHeaders<T> implements Headers<T> {
     private static final int HASH_CODE_PRIME = 31;
     private static final int DEFAULT_BUCKET_SIZE = 17;
     private static final int DEFAULT_MAP_SIZE = 4;
-
     private static final NameConverter<Object> DEFAULT_NAME_CONVERTER = new IdentityNameConverter<Object>();
-
-    private final EntryVisitor<T> setAllVisitor = new EntryVisitor<T>() {
-        @Override
-        public boolean visit(Entry<T, T> entry) {
-            set(entry.getKey(), entry.getValue());
-            return true;
-        }
-    };
-
-    private final EntryVisitor<T> addAllVisitor = new EntryVisitor<T>() {
-        @Override
-        public boolean visit(Entry<T, T> entry) {
-            add(entry.getKey(), entry.getValue());
-            return true;
-        }
-    };
 
     private final IntObjectMap<HeaderEntry> entries;
     private final IntObjectMap<HeaderEntry> tailEntries;
@@ -379,6 +362,11 @@ public class DefaultHeaders<T> implements Headers<T> {
     }
 
     @Override
+    public boolean containsTimeMillis(T name, long value) {
+        return contains(name, valueConverter.convertTimeMillis(checkNotNull(value, "value")));
+    }
+
+    @Override
     public boolean contains(T name, T value, Comparator<? super T> comparator) {
         return contains(name, value, comparator, comparator);
     }
@@ -551,6 +539,11 @@ public class DefaultHeaders<T> implements Headers<T> {
     }
 
     @Override
+    public Headers<T> addTimeMillis(T name, long value) {
+        return add(name, valueConverter.convertTimeMillis(value));
+    }
+
+    @Override
     public Headers<T> addChar(T name, char value) {
         return add(name, valueConverter.convertChar(value));
     }
@@ -691,6 +684,11 @@ public class DefaultHeaders<T> implements Headers<T> {
     }
 
     @Override
+    public Headers<T> setTimeMillis(T name, long value) {
+        return set(name, valueConverter.convertTimeMillis(value));
+    }
+
+    @Override
     public Headers<T> setFloat(T name, float value) {
         return set(name, valueConverter.convertFloat(value));
     }
@@ -737,7 +735,7 @@ public class DefaultHeaders<T> implements Headers<T> {
             }
         } else {
             try {
-                headers.forEachEntry(setAllVisitor);
+                headers.forEachEntry(setAllVisitor());
             } catch (Exception ex) {
                 PlatformDependent.throwException(ex);
             }
@@ -1218,6 +1216,10 @@ public class DefaultHeaders<T> implements Headers<T> {
         return builder.append(']').toString();
     }
 
+    protected ValueConverter<T> valueConverter() {
+        return valueConverter;
+    }
+
     private T convertName(T name) {
         return nameConverter.convertName(checkNotNull(name, "name"));
     }
@@ -1240,7 +1242,7 @@ public class DefaultHeaders<T> implements Headers<T> {
             }
         } else {
             try {
-                headers.forEachEntry(addAllVisitor);
+                headers.forEachEntry(addAllVisitor());
             } catch (Exception ex) {
                 PlatformDependent.throwException(ex);
             }
@@ -1307,6 +1309,26 @@ public class DefaultHeaders<T> implements Headers<T> {
         return removed;
     }
 
+    private EntryVisitor<T> setAllVisitor() {
+        return new EntryVisitor<T>() {
+            @Override
+            public boolean visit(Entry<T, T> entry) {
+                set(entry.getKey(), entry.getValue());
+                return true;
+            }
+        };
+    }
+
+    private EntryVisitor<T> addAllVisitor() {
+        return new EntryVisitor<T>() {
+            @Override
+            public boolean visit(Entry<T, T> entry) {
+                add(entry.getKey(), entry.getValue());
+                return true;
+            }
+        };
+    }
+
     private final class HeaderEntry implements Map.Entry<T, T> {
         final int hash;
         final T name;
@@ -1366,11 +1388,11 @@ public class DefaultHeaders<T> implements Headers<T> {
 
         @Override
         public String toString() {
-            StringBuilder b = new StringBuilder();
-            b.append(name);
-            b.append('=');
-            b.append(value);
-            return b.toString();
+            return new StringBuilder()
+                .append(name)
+                .append('=')
+                .append(value)
+                .toString();
         }
     }
 

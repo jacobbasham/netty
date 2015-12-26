@@ -47,7 +47,6 @@ public class Http2ServerUpgradeCodec implements HttpServerUpgradeHandler.Upgrade
     private final String handlerName;
     private final Http2ConnectionHandler connectionHandler;
     private final Http2FrameReader frameReader;
-    private Http2Settings settings;
 
     /**
      * Creates the codec using a default name for the connection handler when adding to the
@@ -87,7 +86,12 @@ public class Http2ServerUpgradeCodec implements HttpServerUpgradeHandler.Upgrade
         try {
             // Decode the HTTP2-Settings header and set the settings on the handler to make
             // sure everything is fine with the request.
-            settings = decodeSettingsHeader(ctx, upgradeRequest.headers().get(HTTP_UPGRADE_SETTINGS_HEADER));
+            List<CharSequence> upgradeHeaders = upgradeRequest.headers().getAll(HTTP_UPGRADE_SETTINGS_HEADER);
+            if (upgradeHeaders.isEmpty() || upgradeHeaders.size() > 1) {
+                throw new IllegalArgumentException("There must be 1 and only 1 "
+                        + HTTP_UPGRADE_SETTINGS_HEADER + " header.");
+            }
+            Http2Settings settings = decodeSettingsHeader(ctx, upgradeHeaders.get(0));
             connectionHandler.onHttpServerUpgrade(settings);
             // Everything looks good, no need to modify the response.
         } catch (Throwable e) {
