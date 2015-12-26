@@ -147,4 +147,9 @@ public final class DnsResponse extends DnsMessage {
 
         return sb.append('}').toString();
     }
+
+    @Override
+    public DnsResponse retain() {
+        return (DnsResponse) super.retain();
+    }
 }

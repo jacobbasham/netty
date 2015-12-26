@@ -28,6 +28,7 @@ import io.netty.channel.ReflectiveChannelFactory;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.InternetProtocolFamily;
 import io.netty.handler.codec.dns.DnsClass;
+import io.netty.handler.codec.dns.DnsEntry;
 import io.netty.handler.codec.dns.DnsQueryEncoder;
 import io.netty.handler.codec.dns.DnsQuestion;
 import io.netty.handler.codec.dns.DnsResource;
@@ -827,7 +828,7 @@ public class DnsNameResolver extends SimpleNameResolver<InetSocketAddress> {
 
             long ttl = Long.MAX_VALUE;
             // Find the smallest TTL value returned by the server.
-            for (DnsResource r: res.answers()) {
+            for (DnsEntry r: res.answers()) {
                 long rTtl = r.timeToLive();
                 if (ttl > rTtl) {
                     ttl = rTtl;

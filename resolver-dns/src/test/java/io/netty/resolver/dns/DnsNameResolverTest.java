@@ -20,11 +20,13 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.InternetProtocolFamily;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.handler.codec.dns.DnsEntry;
 import io.netty.handler.codec.dns.DnsQuestion;
 import io.netty.handler.codec.dns.DnsResource;
 import io.netty.handler.codec.dns.DnsResponse;
 import io.netty.handler.codec.dns.DnsResponseCode;
 import io.netty.handler.codec.dns.DnsType;
+import io.netty.handler.codec.dns.MailExchangerDnsRecord;
 import io.netty.util.concurrent.Future;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.ThreadLocalRandom;
@@ -48,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
@@ -304,7 +307,8 @@ public class DnsNameResolverTest {
     }
 
     private static Map<String, InetAddress> testResolve0(
-            Set<String> excludedDomains, InternetProtocolFamily... famililies) throws InterruptedException {
+            Set<String> excludedDomains, InternetProtocolFamily... famililies)
+            throws InterruptedException, ExecutionException {
 
         final List<InternetProtocolFamily> oldResolveAddressTypes = resolver.resolveAddressTypes();
 
@@ -328,7 +332,7 @@ public class DnsNameResolverTest {
 
             for (Entry<InetSocketAddress, Future<InetSocketAddress>> e : futures.entrySet()) {
                 InetSocketAddress unresolved = e.getKey();
-                InetSocketAddress resolved = e.getValue().sync().getNow();
+                InetSocketAddress resolved = e.getValue().get();
 
                 logger.info("{}: {}", unresolved.getHostString(), resolved.getAddress().getHostAddress());
 
@@ -365,7 +369,7 @@ public class DnsNameResolverTest {
     }
 
     @Test
-    public void testQueryMx() throws Exception {
+    public void testQueryMx() throws Throwable {
         assertThat(resolver.isRecursionDesired(), is(true));
 
         Map<String, Future<DnsResponse>> futures =
@@ -383,25 +387,23 @@ public class DnsNameResolverTest {
             DnsResponse response = e.getValue().sync().getNow();
 
             assertThat(response.header().responseCode(), is(DnsResponseCode.NOERROR));
-            List<DnsResource> mxList = new ArrayList<DnsResource>();
-            for (DnsResource r: response.answers()) {
+            List<MailExchangerDnsRecord> mxList = new ArrayList<MailExchangerDnsRecord>();
+            for (DnsEntry r: response.answers()) {
                 if (r.type() == DnsType.MX) {
-                    mxList.add(r);
+                    mxList.add((MailExchangerDnsRecord) r);
                 }
             }
 
             assertThat(mxList.size(), is(greaterThan(0)));
             StringBuilder buf = new StringBuilder();
-            for (DnsResource r: mxList) {
+            for (MailExchangerDnsRecord r: mxList) {
                 buf.append(StringUtil.NEWLINE);
                 buf.append('\t');
                 buf.append(r.name());
                 buf.append(' ');
                 buf.append(r.type());
                 buf.append(' ');
-                buf.append(r.content().readUnsignedShort());
-                buf.append(' ');
-                buf.append(DnsNameResolverContext.decodeDomainName(r.content()));
+                buf.append(r.mailExchanger());
             }
 
             logger.info("{} has the following MX records:{}", hostname, buf);

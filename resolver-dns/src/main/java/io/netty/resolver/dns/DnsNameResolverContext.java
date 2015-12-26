@@ -18,12 +18,15 @@ package io.netty.resolver.dns;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.socket.InternetProtocolFamily;
+import io.netty.handler.codec.dns.CNameDnsRecord;
 import io.netty.handler.codec.dns.DnsClass;
+import io.netty.handler.codec.dns.DnsEntry;
 import io.netty.handler.codec.dns.DnsQuestion;
 import io.netty.handler.codec.dns.DnsResource;
 import io.netty.handler.codec.dns.DnsResponse;
 import io.netty.handler.codec.dns.DnsResponseDecoder;
 import io.netty.handler.codec.dns.DnsType;
+import io.netty.handler.codec.dns.Ipv4AddressRecord;
 import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
@@ -153,7 +156,7 @@ final class DnsNameResolverContext {
         final Map<String, String> cnames = buildAliasMap(response);
 
         boolean found = false;
-        for (DnsResource r: response.answers()) {
+        for (DnsEntry r: response.answers()) {
             final DnsType type = r.type();
             if (type != DnsType.A && type != DnsType.AAAA) {
                 continue;
@@ -177,26 +180,31 @@ final class DnsNameResolverContext {
                     continue;
                 }
             }
-
-            final ByteBuf content = r.content();
-            final int contentLen = content.readableBytes();
-            if (contentLen != INADDRSZ4 && contentLen != INADDRSZ6) {
-                continue;
-            }
-
-            final byte[] addrBytes = new byte[contentLen];
-            content.getBytes(content.readerIndex(), addrBytes);
-
-            try {
-                InetAddress resolved = InetAddress.getByAddress(hostname, addrBytes);
-                if (resolvedAddresses == null) {
-                    resolvedAddresses = new ArrayList<InetAddress>();
+            byte[] addrBytes = null;
+            if (r instanceof Ipv4AddressRecord) {
+                Ipv4AddressRecord record = (Ipv4AddressRecord) r;
+                addrBytes = toBytes(record.addressParts());
+            } else if (r instanceof DnsResource) {
+                final ByteBuf content = ((DnsResource) r).content();
+                final int contentLen = content.readableBytes();
+                if (contentLen != INADDRSZ4 && contentLen != INADDRSZ6) {
+                    continue;
                 }
-                resolvedAddresses.add(resolved);
-                found = true;
-            } catch (UnknownHostException e) {
-                // Should never reach here.
-                throw new Error(e);
+                addrBytes = new byte[contentLen];
+                content.getBytes(content.readerIndex(), addrBytes);
+            }
+            if (addrBytes != null) {
+                try {
+                    InetAddress resolved = InetAddress.getByAddress(hostname, addrBytes);
+                    if (resolvedAddresses == null) {
+                        resolvedAddresses = new ArrayList<InetAddress>();
+                    }
+                    resolvedAddresses.add(resolved);
+                    found = true;
+                } catch (UnknownHostException e) {
+                    // Should never reach here.
+                    throw new Error(e);
+                }
             }
         }
 
@@ -210,6 +218,14 @@ final class DnsNameResolverContext {
         if (!cnames.isEmpty()) {
             onResponseCNAME(question, response, cnames, false);
         }
+    }
+
+    private byte[] toBytes(int[] ints) {
+        byte[] result = new byte[ints.length];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = (byte) ints[i];
+        }
+        return result;
     }
 
     private void onResponseCNAME(DnsQuestion question, DnsResponse response) {
@@ -242,16 +258,14 @@ final class DnsNameResolverContext {
 
     private static Map<String, String> buildAliasMap(DnsResponse response) {
         Map<String, String> cnames = null;
-        for (DnsResource r: response.answers()) {
+        for (DnsEntry r: response.answers()) {
             final DnsType type = r.type();
             if (type != DnsType.CNAME) {
                 continue;
             }
+            CNameDnsRecord record = (CNameDnsRecord) r;
 
-            String content = decodeDomainName(r.content());
-            if (content == null) {
-                continue;
-            }
+            String content = record.cname();
 
             if (cnames == null) {
                 cnames = new HashMap<String, String>();
