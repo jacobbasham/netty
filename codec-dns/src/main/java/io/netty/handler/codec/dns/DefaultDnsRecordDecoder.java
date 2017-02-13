@@ -16,9 +16,6 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.CorruptedFrameException;
-import io.netty.util.CharsetUtil;
-import io.netty.util.internal.StringUtil;
 
 /**
  * The default {@link DnsRecordDecoder} implementation.
@@ -27,23 +24,18 @@ import io.netty.util.internal.StringUtil;
  */
 public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
 
-    /**
-     * Creates a new instance.
-     */
-    protected DefaultDnsRecordDecoder() { }
-
     @Override
-    public final DnsQuestion decodeQuestion(ByteBuf in) throws Exception {
-        String name = decodeName(in);
+    public final DnsQuestion decodeQuestion(ByteBuf in, NameCodec forReadingNames) throws Exception {
+        CharSequence name = forReadingNames.readName(in);
         DnsRecordType type = DnsRecordType.valueOf(in.readUnsignedShort());
         int qClass = in.readUnsignedShort();
-        return new DefaultDnsQuestion(name, type, qClass);
+        return new DefaultDnsQuestion(name, type, DnsClass.valueOf(qClass));
     }
 
     @Override
-    public final <T extends DnsRecord> T decodeRecord(ByteBuf in) throws Exception {
+    public final DnsRecord decodeRecord(ByteBuf in, NameCodec forReadingNames) throws Exception {
         final int startOffset = in.readerIndex();
-        final String name = decodeName(in);
+        final CharSequence name = forReadingNames.readName(in);
 
         final int endOffset = in.writerIndex();
         if (endOffset - startOffset < 10) {
@@ -65,7 +57,7 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         }
 
         @SuppressWarnings("unchecked")
-        T record = (T) decodeRecord(name, type, aClass, ttl, in, offset, length);
+        DnsRecord record = decodeRecord(name, type, aClass, ttl, in, offset, length, forReadingNames);
         in.readerIndex(offset + length);
         return record;
     }
@@ -80,60 +72,17 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
      * @param in the {@link ByteBuf} that contains the RDATA
      * @param offset the start offset of the RDATA in {@code in}
      * @param length the length of the RDATA
+     * @param forReadingNames used by some decoders to decode DNS names with pointer compression or
+     * punycode
      *
      * @return a {@link DnsRawRecord}. Override this method to decode RDATA and return other record implementation.
      */
     protected DnsRecord decodeRecord(
-            String name, DnsRecordType type, int dnsClass, long timeToLive,
-            ByteBuf in, int offset, int length) throws Exception {
+            CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
+            ByteBuf in, int offset, int length, NameCodec forReadingNames) throws Exception {
 
         return new DefaultDnsRawRecord(
-                name, type, dnsClass, timeToLive, in.duplicate().setIndex(offset, offset + length).retain());
-    }
-
-    /**
-     * Retrieves a domain name given a buffer containing a DNS packet. If the
-     * name contains a pointer, the position of the buffer will be set to
-     * directly after the pointer's index after the name has been read.
-     *
-     * @param in the byte buffer containing the DNS packet
-     * @return the domain name for an entry
-     */
-    protected String decodeName(ByteBuf in) {
-        int position = -1;
-        int checked = 0;
-        final int end = in.writerIndex();
-        final StringBuilder name = new StringBuilder(in.readableBytes() << 1);
-        for (int len = in.readUnsignedByte(); in.isReadable() && len != 0; len = in.readUnsignedByte()) {
-            boolean pointer = (len & 0xc0) == 0xc0;
-            if (pointer) {
-                if (position == -1) {
-                    position = in.readerIndex() + 1;
-                }
-
-                final int next = (len & 0x3f) << 8 | in.readUnsignedByte();
-                if (next >= end) {
-                    throw new CorruptedFrameException("name has an out-of-range pointer");
-                }
-                in.readerIndex(next);
-
-                // check for loops
-                checked += 2;
-                if (checked >= end) {
-                    throw new CorruptedFrameException("name contains a loop.");
-                }
-            } else {
-                name.append(in.toString(in.readerIndex(), len, CharsetUtil.UTF_8)).append('.');
-                in.skipBytes(len);
-            }
-        }
-        if (position != -1) {
-            in.readerIndex(position);
-        }
-        if (name.length() == 0) {
-            return StringUtil.EMPTY_STRING;
-        }
-
-        return name.substring(0, name.length() - 1);
+                name, type, DnsClass.valueOf(dnsClass), timeToLive,
+                in.duplicate().setIndex(offset, offset + length).retain());
     }
 }

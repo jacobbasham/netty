@@ -16,9 +16,11 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.channel.AddressedEnvelope;
+import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Set;
 
 /**
  * A {@link DnsResponse} implementation for UDP/IP.
@@ -38,7 +40,8 @@ public class DatagramDnsResponse extends DefaultDnsResponse<DatagramDnsResponse>
      * @param id the {@code ID} of the DNS response
      */
     public DatagramDnsResponse(InetSocketAddress sender, InetSocketAddress recipient, int id) {
-        this(sender, recipient, id, DnsOpCode.QUERY, DnsResponseCode.NOERROR);
+        this(sender, recipient, id, DnsOpCode.QUERY, DnsResponseCode.NOERROR,
+                DnsMessageFlags.setOf(false, DnsMessageFlags.IS_REPLY));
     }
 
     /**
@@ -50,7 +53,8 @@ public class DatagramDnsResponse extends DefaultDnsResponse<DatagramDnsResponse>
      * @param opCode the {@code opCode} of the DNS response
      */
     public DatagramDnsResponse(InetSocketAddress sender, InetSocketAddress recipient, int id, DnsOpCode opCode) {
-        this(sender, recipient, id, opCode, DnsResponseCode.NOERROR);
+        this(sender, recipient, id, opCode, DnsResponseCode.NOERROR,
+                DnsMessageFlags.setOf(false, DnsMessageFlags.IS_REPLY));
     }
 
     /**
@@ -64,8 +68,8 @@ public class DatagramDnsResponse extends DefaultDnsResponse<DatagramDnsResponse>
      */
     public DatagramDnsResponse(
             InetSocketAddress sender, InetSocketAddress recipient,
-            int id, DnsOpCode opCode, DnsResponseCode responseCode) {
-        super(id, opCode, responseCode);
+            int id, DnsOpCode opCode, DnsResponseCode responseCode, Set<DnsMessageFlags> flags) {
+        super(id, opCode, responseCode, flags);
 
         if (recipient == null && sender == null) {
             throw new NullPointerException("recipient and sender");
@@ -73,6 +77,23 @@ public class DatagramDnsResponse extends DefaultDnsResponse<DatagramDnsResponse>
 
         this.sender = sender;
         this.recipient = recipient;
+    }
+
+    public DatagramDnsResponse(InetSocketAddress sender, InetSocketAddress recipient, int id,
+            DnsResponse orig) {
+        this(sender, recipient, id, orig.opCode(), orig.code(), orig.flags());
+        setZ(orig.z());
+        for (DnsSection section : DnsSection.values()) {
+            int max = orig.count(section);
+            for (int i = 0; i < max; i++) {
+                DnsRecord record = orig.recordAt(section, i);
+                DnsRecord replacement = record;
+                if (record instanceof DnsRawRecord) {
+                    replacement = ((DnsRawRecord) record).copy();
+                }
+                addRecord(section, replacement);
+            }
+        }
     }
 
     @Override

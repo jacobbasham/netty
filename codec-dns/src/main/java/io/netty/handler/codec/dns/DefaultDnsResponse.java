@@ -15,8 +15,14 @@
  */
 package io.netty.handler.codec.dns;
 
+import static io.netty.handler.codec.dns.DnsMessageFlags.AUTHORITATIVE_ANSWER;
+import static io.netty.handler.codec.dns.DnsMessageFlags.IS_REPLY;
+import static io.netty.handler.codec.dns.DnsMessageFlags.RECURSION_AVAILABLE;
+import static io.netty.handler.codec.dns.DnsMessageFlags.TRUNCATED;
 import io.netty.util.ReferenceCounted;
+import io.netty.util.internal.ObjectUtil;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import java.util.Set;
 
 /**
  * The default {@link DnsResponse} implementation.
@@ -24,9 +30,6 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
 public class DefaultDnsResponse<M extends ReferenceCounted & DnsResponse<M>>
         extends AbstractDnsMessage<M> implements DnsResponse<M> {
 
-    private boolean authoritativeAnswer;
-    private boolean truncated;
-    private boolean recursionAvailable;
     private DnsResponseCode code;
 
     /**
@@ -56,41 +59,68 @@ public class DefaultDnsResponse<M extends ReferenceCounted & DnsResponse<M>>
      * @param opCode the {@code opCode} of the DNS response
      * @param code the {@code RCODE} of the DNS response
      */
-    public DefaultDnsResponse(int id, DnsOpCode opCode, DnsResponseCode code) {
-        super(id, opCode);
-        setCode(code);
+    public DefaultDnsResponse(int id, DnsOpCode opCode, DnsResponseCode code, DnsMessageFlags... flags) {
+        super(id, opCode, flags);
+        this.flags.add(IS_REPLY);
+        this.code = ObjectUtil.checkNotNull(code, "code");
+    }
+
+    /**
+     * Creates a new instance.
+     *
+     * @param id the {@code ID} ofDefaultDnsResponse the DNS response
+     * @param opCode the {@code opCode} of the DNS response
+     * @param code the {@code RCODE} of the DNS response
+     * @param flags
+     */
+    public DefaultDnsResponse(int id, DnsOpCode opCode, DnsResponseCode code, Set<DnsMessageFlags> flags) {
+        super(id, opCode, flags);
+        this.flags.add(IS_REPLY);
+        this.code = ObjectUtil.checkNotNull(code, "code");
     }
 
     @Override
     public boolean isAuthoritativeAnswer() {
-        return authoritativeAnswer;
+        return flags.contains(AUTHORITATIVE_ANSWER);
     }
 
     @Override
     public M setAuthoritativeAnswer(boolean authoritativeAnswer) {
-        this.authoritativeAnswer = authoritativeAnswer;
+        if (authoritativeAnswer) {
+            flags.add(AUTHORITATIVE_ANSWER);
+        } else {
+            flags.remove(AUTHORITATIVE_ANSWER);
+        }
         return cast(this);
     }
 
     @Override
     public boolean isTruncated() {
-        return truncated;
+        return flags.contains(TRUNCATED);
     }
 
     @Override
     public M setTruncated(boolean truncated) {
-        this.truncated = truncated;
+        if (truncated) {
+            flags.add(TRUNCATED);
+        } else {
+            flags.remove(TRUNCATED);
+        }
         return cast(this);
     }
 
     @Override
     public boolean isRecursionAvailable() {
-        return recursionAvailable;
+        return flags.contains(RECURSION_AVAILABLE);
     }
 
     @Override
     public M setRecursionAvailable(boolean recursionAvailable) {
-        this.recursionAvailable = recursionAvailable;
+        if (recursionAvailable) {
+            flags.add(RECURSION_AVAILABLE);
+        } else {
+            flags.remove(RECURSION_AVAILABLE);
+        }
         return cast(this);
     }
 

@@ -15,6 +15,7 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.DnsMessageFlags.FlagSet;
 import io.netty.util.ReferenceCounted;
 
 /**
@@ -41,6 +42,14 @@ public interface DnsMessage<M extends ReferenceCounted & DnsMessage> extends Ref
      * Sets the {@code opCode} of this DNS message.
      */
     M setOpCode(DnsOpCode opCode);
+
+    /**
+     * Get the set of message flags, as a Set implementation whose
+     * value() method returns the correct bitmask for wire format.
+     *
+     * @return  The flags
+     */
+    FlagSet flags();
 
     /**
      * Returns the {@code RD} (recursion desired} field of this DNS message.

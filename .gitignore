@@ -31,3 +31,7 @@ bin/
 # JVM crash logs
 hs_err_pid*.log
 
+# IDE config files
+nbproject/
+nb-configuration.xml
+dependency-reduced-pom.xml

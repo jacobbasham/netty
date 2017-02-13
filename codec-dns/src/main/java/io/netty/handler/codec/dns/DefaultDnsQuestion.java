@@ -28,7 +28,7 @@ public class DefaultDnsQuestion extends AbstractDnsRecord implements DnsQuestion
      * @param name the domain name of the DNS question
      * @param type the type of the DNS question
      */
-    public DefaultDnsQuestion(String name, DnsRecordType type) {
+    public DefaultDnsQuestion(CharSequence name, DnsRecordType type) {
         super(name, type, 0);
     }
 
@@ -47,7 +47,7 @@ public class DefaultDnsQuestion extends AbstractDnsRecord implements DnsQuestion
      *                     <li>{@link #CLASS_ANY}</li>
      *                 </ul>
      */
-    public DefaultDnsQuestion(String name, DnsRecordType type, int dnsClass) {
+    public DefaultDnsQuestion(CharSequence name, DnsRecordType type, DnsClass dnsClass) {
         super(name, type, dnsClass, 0);
     }
 
@@ -66,5 +66,18 @@ public class DefaultDnsQuestion extends AbstractDnsRecord implements DnsQuestion
                       .append(')');
 
         return buf.toString();
+    }
+
+    public boolean equals(Object o) {
+        // Without this, we could match against an answer to this question
+        if (o instanceof DnsQuestion) {
+            return super.equals(o);
+        }
+        return false;
+    }
+
+    public int hashCode() {
+        // Ensure hash code does not match an answer
+        return 23 * super.hashCode();
     }
 }

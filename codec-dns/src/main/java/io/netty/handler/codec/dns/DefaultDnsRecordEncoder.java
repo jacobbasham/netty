@@ -16,7 +16,6 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.handler.codec.UnsupportedMessageTypeException;
 import io.netty.util.internal.StringUtil;
 
@@ -30,31 +29,32 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
     /**
      * Creates a new instance.
      */
-    protected DefaultDnsRecordEncoder() { }
-
-    @Override
-    public final void encodeQuestion(DnsQuestion question, ByteBuf out) throws Exception {
-        encodeName(question.name(), out);
-        out.writeShort(question.type().intValue());
-        out.writeShort(question.dnsClass());
+    protected DefaultDnsRecordEncoder() {
     }
 
     @Override
-    public void encodeRecord(DnsRecord record, ByteBuf out) throws Exception {
+    public final void encodeQuestion(NameCodec nameWriter, DnsQuestion question, ByteBuf out) throws Exception {
+        nameWriter.writeName(question.name(), out);
+        out.writeShort(question.type().intValue());
+        out.writeShort(question.dnsClass().intValue());
+    }
+
+    @Override
+    public void encodeRecord(NameCodec nameWriter, DnsRecord record, ByteBuf out) throws Exception {
         if (record instanceof DnsQuestion) {
-            encodeQuestion((DnsQuestion) record, out);
+            encodeQuestion(nameWriter, (DnsQuestion) record, out);
         } else if (record instanceof DnsRawRecord) {
-            encodeRawRecord((DnsRawRecord) record, out);
+            encodeRawRecord(nameWriter, (DnsRawRecord) record, out);
         } else {
             throw new UnsupportedMessageTypeException(StringUtil.simpleClassName(record));
         }
     }
 
-    private void encodeRawRecord(DnsRawRecord record, ByteBuf out) throws Exception {
-        encodeName(record.name(), out);
+    private void encodeRawRecord(NameCodec nameWriter, DnsRawRecord record, ByteBuf out) throws Exception {
+        nameWriter.writeName(record.name(), out);
 
         out.writeShort(record.type().intValue());
-        out.writeShort(record.dnsClass());
+        out.writeShort(record.dnsClass().intValue());
         out.writeInt((int) record.timeToLive());
 
         ByteBuf content = record.content();
@@ -62,18 +62,5 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
 
         out.writeShort(contentLen);
         out.writeBytes(content, content.readerIndex(), contentLen);
-    }
-
-    protected void encodeName(String name, ByteBuf buf) throws Exception {
-        String[] parts = StringUtil.split(name, '.');
-        for (String part: parts) {
-            final int partLen = part.length();
-            if (partLen == 0) {
-                continue;
-            }
-            buf.writeByte(partLen);
-            ByteBufUtil.writeAscii(buf, part);
-        }
-        buf.writeByte(0); // marks end of name field
     }
 }

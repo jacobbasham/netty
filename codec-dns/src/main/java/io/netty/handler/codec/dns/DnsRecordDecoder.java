@@ -31,14 +31,15 @@ public interface DnsRecordDecoder {
      *
      * @param in the input buffer which contains a DNS question at its reader index
      */
-    DnsQuestion decodeQuestion(ByteBuf in) throws Exception;
+    DnsQuestion decodeQuestion(ByteBuf in, NameCodec forReadingNames) throws Exception;
 
     /**
      * Decodes a DNS record into its object representation.
      *
      * @param in the input buffer which contains a DNS record at its reader index
+     * @param forReadingNames Decodes names
      *
      * @return the decoded record, or {@code null} if there are not enough data in the input buffer
      */
-    <T extends DnsRecord> T decodeRecord(ByteBuf in) throws Exception;
+    <T extends DnsRecord> T decodeRecord(ByteBuf in, NameCodec forReadingNames) throws Exception;
 }

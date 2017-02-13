@@ -18,17 +18,18 @@ package io.netty.handler.codec.dns;
 import io.netty.util.internal.StringUtil;
 
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import static io.netty.util.internal.StringUtil.charSequenceHashCode;
+import static io.netty.util.internal.StringUtil.charSequencesEqual;
 
 /**
  * A skeletal implementation of {@link DnsRecord}.
  */
 public abstract class AbstractDnsRecord implements DnsRecord {
 
-    private final String name;
+    private final CharSequence name;
     private final DnsRecordType type;
-    private final short dnsClass;
+    private final DnsClass dnsClass;
     private final long timeToLive;
-    private int hashCode;
 
     /**
      * Creates a new {@link #CLASS_IN IN-class} record.
@@ -37,8 +38,8 @@ public abstract class AbstractDnsRecord implements DnsRecord {
      * @param type the type of the record
      * @param timeToLive the TTL value of the record
      */
-    protected AbstractDnsRecord(String name, DnsRecordType type, long timeToLive) {
-        this(name, type, CLASS_IN, timeToLive);
+    protected AbstractDnsRecord(CharSequence name, DnsRecordType type, long timeToLive) {
+        this(name, type, DnsClass.IN, timeToLive);
     }
 
     /**
@@ -47,28 +48,28 @@ public abstract class AbstractDnsRecord implements DnsRecord {
      * @param name the domain name
      * @param type the type of the record
      * @param dnsClass the class of the record, usually one of the following:
-     *                 <ul>
-     *                     <li>{@link #CLASS_IN}</li>
-     *                     <li>{@link #CLASS_CSNET}</li>
-     *                     <li>{@link #CLASS_CHAOS}</li>
-     *                     <li>{@link #CLASS_HESIOD}</li>
-     *                     <li>{@link #CLASS_NONE}</li>
-     *                     <li>{@link #CLASS_ANY}</li>
-     *                 </ul>
+     * <ul>
+     * <li>{@link #CLASS_IN}</li>
+     * <li>{@link #CLASS_CSNET}</li>
+     * <li>{@link #CLASS_CHAOS}</li>
+     * <li>{@link #CLASS_HESIOD}</li>
+     * <li>{@link #CLASS_NONE}</li>
+     * <li>{@link #CLASS_ANY}</li>
+     * </ul>
      * @param timeToLive the TTL value of the record
      */
-    protected AbstractDnsRecord(String name, DnsRecordType type, int dnsClass, long timeToLive) {
+    protected AbstractDnsRecord(CharSequence name, DnsRecordType type, DnsClass dnsClass, long timeToLive) {
         if (timeToLive < 0) {
             throw new IllegalArgumentException("timeToLive: " + timeToLive + " (expected: >= 0)");
         }
         this.name = checkNotNull(name, "name");
         this.type = checkNotNull(type, "type");
-        this.dnsClass = (short) dnsClass;
+        this.dnsClass = dnsClass;
         this.timeToLive = timeToLive;
     }
 
     @Override
-    public String name() {
+    public CharSequence name() {
         return name;
     }
 
@@ -78,8 +79,8 @@ public abstract class AbstractDnsRecord implements DnsRecord {
     }
 
     @Override
-    public int dnsClass() {
-        return dnsClass & 0xFFFF;
+    public DnsClass dnsClass() {
+        return dnsClass;
     }
 
     @Override
@@ -98,24 +99,21 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         }
 
         final DnsRecord that = (DnsRecord) obj;
-        final int hashCode = this.hashCode;
-        if (hashCode != 0 && hashCode != that.hashCode()) {
-            return false;
-        }
 
-        return type().intValue() == that.type().intValue() &&
-               dnsClass() == that.dnsClass() &&
-               name().equals(that.name());
+        return type().intValue() == that.type().intValue()
+                && dnsClass() == that.dnsClass()
+                && timeToLive() == that.timeToLive()
+                && charSequencesEqual(name(), that.name(), true);
     }
 
     @Override
     public int hashCode() {
-        final int hashCode = this.hashCode;
-        if (hashCode != 0) {
-            return hashCode;
-        }
-
-        return this.hashCode = name.hashCode() * 31 + type().intValue() * 31 + dnsClass();
+        int hash = 7;
+        hash = 67 * hash + (this.name != null ? charSequenceHashCode(name(), true) : 0);
+        hash = 67 * hash + (this.type != null ? this.type.hashCode() : 0);
+        hash = 67 * hash + (this.dnsClass != null ? this.dnsClass.hashCode() : 0);
+        hash = 67 * hash + (int) (this.timeToLive ^ (this.timeToLive >>> 32));
+        return hash;
     }
 
     @Override
@@ -123,16 +121,16 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         StringBuilder buf = new StringBuilder(64);
 
         buf.append(StringUtil.simpleClassName(this))
-           .append('(')
-           .append(name())
-           .append(' ')
-           .append(timeToLive())
-           .append(' ');
+                .append('(')
+                .append(name())
+                .append(' ')
+                .append(timeToLive())
+                .append(' ');
 
         DnsMessageUtil.appendRecordClass(buf, dnsClass())
-                      .append(' ')
-                      .append(type().name())
-                      .append(')');
+                .append(' ')
+                .append(type().name())
+                .append(')');
 
         return buf.toString();
     }

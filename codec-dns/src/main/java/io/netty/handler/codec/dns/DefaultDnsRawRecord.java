@@ -34,8 +34,8 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
      * @param type the type of the record
      * @param timeToLive the TTL value of the record
      */
-    public DefaultDnsRawRecord(String name, DnsRecordType type, long timeToLive, ByteBuf content) {
-        this(name, type, DnsRecord.CLASS_IN, timeToLive, content);
+    public DefaultDnsRawRecord(CharSequence name, DnsRecordType type, long timeToLive, ByteBuf content) {
+        this(name, type, DnsClass.IN, timeToLive, content);
     }
 
     /**
@@ -55,7 +55,7 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
      * @param timeToLive the TTL value of the record
      */
     public DefaultDnsRawRecord(
-            String name, DnsRecordType type, int dnsClass, long timeToLive, ByteBuf content) {
+            CharSequence name, DnsRecordType type, DnsClass dnsClass, long timeToLive, ByteBuf content) {
         super(name, type, dnsClass, timeToLive);
         this.content = checkNotNull(content, "content");
     }
@@ -119,7 +119,7 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
         final StringBuilder buf = new StringBuilder(64).append(StringUtil.simpleClassName(this)).append('(');
         final DnsRecordType type = type();
         if (type != DnsRecordType.OPT) {
-            buf.append(name().isEmpty()? "<root>" : name())
+            buf.append(name().length() == 0 ? "<root>" : name())
                .append(' ')
                .append(timeToLive())
                .append(' ');

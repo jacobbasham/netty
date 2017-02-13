@@ -16,6 +16,7 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.util.ReferenceCounted;
+import java.util.Set;
 
 /**
  * The default {@link DnsQuery} implementation.
@@ -29,17 +30,22 @@ public class DefaultDnsQuery<M extends ReferenceCounted & DnsQuery<M>>
      * @param id the {@code ID} of the DNS query
      */
     public DefaultDnsQuery(int id) {
-        super(id);
+        this(id, DnsOpCode.QUERY);
     }
 
-    /**
-     * Creates a new instance.
-     *
-     * @param id the {@code ID} of the DNS query
-     * @param opCode the {@code opCode} of the DNS query
-     */
-    public DefaultDnsQuery(int id, DnsOpCode opCode) {
-        super(id, opCode);
+    public DefaultDnsQuery(int id, DnsOpCode opCode, Set<DnsMessageFlags> flags) {
+        super(id, opCode, flags);
+        if (this.flags.contains(DnsMessageFlags.IS_REPLY)) {
+            throw new IllegalArgumentException("Cannot pass the IS_REPLY flag to a question");
+        }
+    }
+
+    public DefaultDnsQuery(int id, DnsOpCode opCode, DnsMessageFlags... flags) {
+        this(id, opCode, DnsMessageFlags.setOf(true, flags));
+    }
+
+    public DefaultDnsQuery(int id, DnsMessageFlags... flags) {
+        this(id, DnsOpCode.QUERY, DnsMessageFlags.setOf(true, flags));
     }
 
     @Override

@@ -16,6 +16,7 @@
 package io.netty.util.internal;
 
 
+import io.netty.util.AsciiString;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Formatter;
@@ -393,6 +394,74 @@ public final class StringUtil {
 
     private static boolean isDoubleQuote(char c) {
         return c == DOUBLE_QUOTE;
+    }
+
+    /**
+     * Computes a hash code for a CharSequence.  If ignoreCase is false, the result
+     * will be the same as that of java.lang.String.
+     * @param seq A char sequence
+     * @param ignoreCase If true, generate a hash code for the lower-case version of the
+     * passed CharSequence
+     * @return A hash code
+     * @since 5.0.0.Alpha3
+     */
+    public static int charSequenceHashCode(CharSequence seq, boolean ignoreCase) {
+        // Same computation as java.lang.String for case sensitive
+        int length = seq.length();
+        if (length == 0) {
+            return 0;
+        }
+        int result = 0;
+        for (int i = 0; i < length; i++) {
+            if (ignoreCase) {
+                result = 31 * result + Character.toLowerCase(seq.charAt(i));
+            } else {
+                result = 31 * result + seq.charAt(i);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Compare the contents of two CharSequences which may be of different types
+     * for equality.
+     * @param a One character sequence
+     * @param b Another character sequence
+     * @param ignoreCase If true, do a case-insensitive comparison
+     * @return true if they match
+     * @since 5.0.0.Alpha3
+     */
+    public static boolean charSequencesEqual(CharSequence a, CharSequence b, boolean ignoreCase) {
+        if ((a == null) != (b == null)) {
+            return false;
+        } else if (a == b) {
+            return true;
+        }
+        int length = a.length();
+        if (length != b.length()) {
+            return false;
+        }
+        if (ignoreCase && a.getClass() == b.getClass()) {
+            return a.equals(b);
+        }
+        if (!ignoreCase && a instanceof String) {
+            return  ((String) a).contentEquals(b);
+        } else if (!ignoreCase && b instanceof String) {
+            return ((String) b).contentEquals(a);
+        } else if (a instanceof AsciiString) {
+            return ignoreCase ? ((AsciiString) a).contentEqualsIgnoreCase(b) : ((AsciiString) a).contentEquals(b);
+        } else if (b instanceof AsciiString) {
+            return ignoreCase ? ((AsciiString) b).contentEqualsIgnoreCase(a) : ((AsciiString) b).contentEquals(a);
+        } else {
+            for (int i = 0; i < length; i++) {
+                char ca = ignoreCase ? Character.toLowerCase(a.charAt(i)) : a.charAt(i);
+                char cb = ignoreCase ? Character.toLowerCase(b.charAt(i)) : b.charAt(i);
+                if (cb != ca) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private StringUtil() {

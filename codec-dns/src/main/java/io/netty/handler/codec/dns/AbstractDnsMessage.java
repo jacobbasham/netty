@@ -15,6 +15,8 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.DnsMessageFlags.FlagSet;
+import static io.netty.handler.codec.dns.DnsMessageFlags.RECURSION_DESIRED;
 import io.netty.util.AbstractReferenceCounted;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.ReferenceCounted;
@@ -26,6 +28,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import java.util.EnumSet;
+import java.util.Set;
 
 /**
  * A skeletal implementation of {@link DnsMessage}.
@@ -42,7 +46,7 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
     private final ResourceLeak leak = leakDetector.open(this);
     private short id;
     private DnsOpCode opCode;
-    private boolean recursionDesired;
+    protected final FlagSet flags = DnsMessageFlags.setOf(false);
     private byte z;
 
     // To reduce the memory footprint of a message,
@@ -56,17 +60,30 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
      * Creates a new instance with the specified {@code id} and {@link DnsOpCode#QUERY} opCode.
      */
     protected AbstractDnsMessage(int id) {
-        this(id, DnsOpCode.QUERY);
+        this(id, DnsOpCode.QUERY, EnumSet.noneOf(DnsMessageFlags.class));
+    }
+
+    protected AbstractDnsMessage(int id, DnsOpCode opCode) {
+        this (id, opCode, DnsMessageFlags.setOf(false));
+    }
+
+    protected AbstractDnsMessage(int id, DnsOpCode opCode, DnsMessageFlags... flags) {
+        this(id, opCode, DnsMessageFlags.setOf(false, flags));
     }
 
     /**
      * Creates a new instance with the specified {@code id} and {@code opCode}.
+     * @param id The message id
+     * @param opCode The type of operation
+     * @param flags A set of message flags
      */
-    protected AbstractDnsMessage(int id, DnsOpCode opCode) {
-        setId(id);
-        setOpCode(opCode);
+    protected AbstractDnsMessage(int id, DnsOpCode opCode, Set<DnsMessageFlags> flags) {
+        this.id = (short) id;
+        this.opCode = checkNotNull(opCode, "opCode");
+        this.flags.addAll(checkNotNull(flags, "flags"));
     }
 
+    @SuppressWarnings("unchecked")
     protected final M cast(AbstractDnsMessage msg) {
         return (M) msg;
     }
@@ -79,7 +96,7 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
     @Override
     public M setId(int id) {
         this.id = (short) id;
-        return (M) this;
+        return cast(this);
     }
 
     @Override
@@ -95,12 +112,21 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
 
     @Override
     public boolean isRecursionDesired() {
-        return recursionDesired;
+        return flags.contains(RECURSION_DESIRED);
+    }
+
+    @Override
+    public final FlagSet flags() {
+        return flags.unmodifiableView();
     }
 
     @Override
     public M setRecursionDesired(boolean recursionDesired) {
-        this.recursionDesired = recursionDesired;
+        if (recursionDesired) {
+            flags.add(RECURSION_DESIRED);
+        } else {
+            flags.remove(RECURSION_DESIRED);
+        }
         return cast(this);
     }
 
@@ -392,30 +418,25 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
         if (this == obj) {
             return true;
         }
-
         if (!(obj instanceof DnsMessage)) {
             return false;
         }
-
         final DnsMessage that = (DnsMessage) obj;
         if (id() != that.id()) {
             return false;
         }
-
-        if (this instanceof DnsQuery) {
-            if (!(that instanceof DnsQuery)) {
-                return false;
-            }
-        } else if (that instanceof DnsQuery) {
+        if (!flags().equals(that.flags())) {
             return false;
         }
-
-        return true;
+        return this instanceof DnsQuery == that instanceof DnsQuery;
     }
 
     @Override
     public int hashCode() {
-        return id() * 31 + (this instanceof DnsQuery? 0 : 1);
+        int hash = 7;
+        hash = 83 * hash + this.id;
+        hash = 83 * hash + (this.flags != null ? this.flags.hashCode() : 0);
+        return hash;
     }
 
     private Object sectionAt(int section) {
@@ -428,9 +449,9 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
             return authorities;
         case 3:
             return additionals;
+        default :
+            throw new AssertionError(section);
         }
-
-        throw new Error(); // Should never reach here.
     }
 
     private void setSection(int section, Object value) {
@@ -447,9 +468,9 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
         case 3:
             additionals = value;
             return;
+        default :
+            throw new AssertionError(section);
         }
-
-        throw new Error(); // Should never reach here.
     }
 
     private static int sectionOrdinal(DnsSection section) {

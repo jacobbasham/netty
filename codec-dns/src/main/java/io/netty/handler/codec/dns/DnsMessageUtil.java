@@ -37,38 +37,8 @@ final class DnsMessageUtil {
         return buf;
     }
 
-    static StringBuilder appendRecordClass(StringBuilder buf, int dnsClass) {
-        final String name;
-        switch (dnsClass &= 0xFFFF) {
-        case DnsRecord.CLASS_IN:
-            name = "IN";
-            break;
-        case DnsRecord.CLASS_CSNET:
-            name = "CSNET";
-            break;
-        case DnsRecord.CLASS_CHAOS:
-            name = "CHAOS";
-            break;
-        case DnsRecord.CLASS_HESIOD:
-            name = "HESIOD";
-            break;
-        case DnsRecord.CLASS_NONE:
-            name = "NONE";
-            break;
-        case DnsRecord.CLASS_ANY:
-            name = "ANY";
-            break;
-        default:
-            name = null;
-            break;
-        }
-
-        if (name != null) {
-            buf.append(name);
-        } else {
-            buf.append("UNKNOWN(").append(dnsClass).append(')');
-        }
-
+    static StringBuilder appendRecordClass(StringBuilder buf, DnsClass dnsClass) {
+        buf.append(dnsClass.name());
         return buf;
     }
 
