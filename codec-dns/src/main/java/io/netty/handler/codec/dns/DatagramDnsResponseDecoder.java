@@ -23,6 +23,7 @@ import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.internal.UnstableApi;
 
+import java.net.InetSocketAddress;
 import java.util.List;
 
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
@@ -52,9 +53,10 @@ public class DatagramDnsResponseDecoder extends MessageToMessageDecoder<Datagram
 
     @Override
     protected void decode(ChannelHandlerContext ctx, DatagramPacket packet, List<Object> out) throws Exception {
+        final InetSocketAddress sender = packet.sender();
         final ByteBuf buf = packet.content();
 
-        final DnsResponse response = newResponse(packet, buf);
+        final DnsResponse<?> response = newResponse(sender, buf);
         boolean success = false;
         try {
             final int questionCount = buf.readUnsignedShort();
@@ -76,7 +78,7 @@ public class DatagramDnsResponseDecoder extends MessageToMessageDecoder<Datagram
         }
     }
 
-    private static DnsResponse newResponse(DatagramPacket packet, ByteBuf buf) {
+    private static DnsResponse<?> newResponse(InetSocketAddress sender, ByteBuf buf) {
         final int id = buf.readUnsignedShort();
 
         final int flags = buf.readUnsignedShort();
@@ -84,11 +86,9 @@ public class DatagramDnsResponseDecoder extends MessageToMessageDecoder<Datagram
             throw new CorruptedFrameException("not a response");
         }
 
-        final DnsResponse response = new DatagramDnsResponse(
-            packet.sender(),
-            packet.recipient(),
-            id,
-            DnsOpCode.valueOf((byte) (flags >> 11 & 0xf)), DnsResponseCode.valueOf((byte) (flags & 0xf)));
+        final DnsResponse<?> response = new DatagramDnsResponse(
+                sender, null,
+                id, DnsOpCode.valueOf((byte) (flags >> 11 & 0xf)), DnsResponseCode.valueOf((byte) (flags & 0xf)));
 
         response.setRecursionDesired((flags >> 8 & 1) == 1);
         response.setAuthoritativeAnswer((flags >> 10 & 1) == 1);
@@ -98,14 +98,14 @@ public class DatagramDnsResponseDecoder extends MessageToMessageDecoder<Datagram
         return response;
     }
 
-    private void decodeQuestions(DnsResponse response, ByteBuf buf, int questionCount) throws Exception {
+    private void decodeQuestions(DnsResponse<?> response, ByteBuf buf, int questionCount) throws Exception {
         for (int i = questionCount; i > 0; i --) {
             response.addRecord(DnsSection.QUESTION, recordDecoder.decodeQuestion(buf));
         }
     }
 
     private void decodeRecords(
-            DnsResponse response, DnsSection section, ByteBuf buf, int count) throws Exception {
+            DnsResponse<?> response, DnsSection section, ByteBuf buf, int count) throws Exception {
         for (int i = count; i > 0; i --) {
             final DnsRecord r = recordDecoder.decodeRecord(buf);
             if (r == null) {
