@@ -20,6 +20,7 @@ import io.netty.util.internal.UnstableApi;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Set;
 
 /**
  * A {@link DnsQuery} implementation for UDP/IP.
@@ -53,7 +54,13 @@ public class DatagramDnsQuery extends DefaultDnsQuery<DatagramDnsQuery>
      */
     public DatagramDnsQuery(
             InetSocketAddress sender, InetSocketAddress recipient, int id, DnsOpCode opCode) {
-        super(id, opCode);
+        this(sender, recipient, id, opCode, DnsMessageFlags.setOf(true));
+    }
+
+    public DatagramDnsQuery(
+            InetSocketAddress sender, InetSocketAddress recipient, int id, DnsOpCode opCode,
+            Set<DnsMessageFlags> flags) {
+        super(id, opCode, flags);
 
         if (recipient == null && sender == null) {
             throw new NullPointerException("recipient and sender");

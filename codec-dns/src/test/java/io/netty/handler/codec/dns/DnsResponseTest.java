@@ -20,7 +20,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.AddressedEnvelope;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.channel.socket.DatagramPacket;
-import io.netty.handler.codec.CorruptedFrameException;
+import io.netty.handler.codec.DecoderException;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -99,7 +99,7 @@ public class DnsResponseTest {
     public void readMalormedResponseTest() throws Exception {
         EmbeddedChannel embedder = new EmbeddedChannel(new DatagramDnsResponseDecoder());
         ByteBuf packet = embedder.alloc().buffer(512).writeBytes(malformedLoopPacket);
-        exception.expect(CorruptedFrameException.class);
+        exception.expect(DecoderException.class);
         embedder.writeInbound(new DatagramPacket(packet, null, new InetSocketAddress(0)));
     }
 }

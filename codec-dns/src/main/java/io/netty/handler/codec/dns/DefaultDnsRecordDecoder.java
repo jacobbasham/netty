@@ -16,9 +16,12 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
+<<<<<<< HEAD
 import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.util.CharsetUtil;
 import io.netty.util.internal.UnstableApi;
+=======
+>>>>>>> cd5b63649... Basic DNS server support
 
 /**
  * The default {@link DnsRecordDecoder} implementation.
@@ -28,6 +31,7 @@ import io.netty.util.internal.UnstableApi;
 @UnstableApi
 public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
 
+<<<<<<< HEAD
     static final String ROOT = ".";
 
     /**
@@ -35,18 +39,20 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
      */
     protected DefaultDnsRecordDecoder() { }
 
+=======
+>>>>>>> cd5b63649... Basic DNS server support
     @Override
-    public final DnsQuestion decodeQuestion(ByteBuf in) throws Exception {
-        String name = decodeName(in);
+    public final DnsQuestion decodeQuestion(ByteBuf in, NameCodec forReadingNames) throws Exception {
+        CharSequence name = forReadingNames.readName(in);
         DnsRecordType type = DnsRecordType.valueOf(in.readUnsignedShort());
         int qClass = in.readUnsignedShort();
-        return new DefaultDnsQuestion(name, type, qClass);
+        return new DefaultDnsQuestion(name, type, DnsClass.valueOf(qClass));
     }
 
     @Override
-    public final <T extends DnsRecord> T decodeRecord(ByteBuf in) throws Exception {
+    public final DnsRecord decodeRecord(ByteBuf in, NameCodec forReadingNames) throws Exception {
         final int startOffset = in.readerIndex();
-        final String name = decodeName(in);
+        final CharSequence name = forReadingNames.readName(in);
 
         final int endOffset = in.writerIndex();
         if (endOffset - startOffset < 10) {
@@ -68,7 +74,7 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         }
 
         @SuppressWarnings("unchecked")
-        T record = (T) decodeRecord(name, type, aClass, ttl, in, offset, length);
+        DnsRecord record = decodeRecord(name, type, aClass, ttl, in, offset, length, forReadingNames);
         in.readerIndex(offset + length);
         return record;
     }
@@ -83,12 +89,14 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
      * @param in the {@link ByteBuf} that contains the RDATA
      * @param offset the start offset of the RDATA in {@code in}
      * @param length the length of the RDATA
+     * @param forReadingNames used by some decoders to decode DNS names with pointer compression or
+     * punycode
      *
      * @return a {@link DnsRawRecord}. Override this method to decode RDATA and return other record implementation.
      */
     protected DnsRecord decodeRecord(
-            String name, DnsRecordType type, int dnsClass, long timeToLive,
-            ByteBuf in, int offset, int length) throws Exception {
+            CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
+            ByteBuf in, int offset, int length, NameCodec forReadingNames) throws Exception {
 
         // DNS message compression means that domain names may contain "pointers" to other positions in the packet
         // to build a full message. This means the indexes are meaningful and we need the ability to reference the
@@ -99,6 +107,7 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
                     name, dnsClass, timeToLive, decodeName0(in.duplicate().setIndex(offset, offset + length)));
         }
         return new DefaultDnsRawRecord(
+<<<<<<< HEAD
                 name, type, dnsClass, timeToLive, in.retainedDuplicate().setIndex(offset, offset + length));
     }
 
@@ -187,5 +196,9 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         }
 
         return name.toString();
+=======
+                name, type, DnsClass.valueOf(dnsClass), timeToLive,
+                in.duplicate().setIndex(offset, offset + length).retain());
+>>>>>>> cd5b63649... Basic DNS server support
     }
 }

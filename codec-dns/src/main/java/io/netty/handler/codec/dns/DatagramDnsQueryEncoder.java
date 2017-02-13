@@ -38,19 +38,34 @@ public class DatagramDnsQueryEncoder
         extends MessageToMessageEncoder<AddressedEnvelope<DnsQuery<?>, InetSocketAddress>> {
 
     private final DnsRecordEncoder recordEncoder;
+    private final NameCodec.Factory names;
+    private final int baseBufferSize;
+    private final int maxBufferSize;
 
     /**
-     * Creates a new encoder with {@linkplain DnsRecordEncoder#DEFAULT the default record encoder}.
+     * Creates a new encoder with
+     * {@linkplain DnsRecordEncoder#DEFAULT the default record encoder}.
      */
     public DatagramDnsQueryEncoder() {
-        this(DnsRecordEncoder.DEFAULT);
+        this(DnsRecordEncoder.DEFAULT, NameCodec.compressingFactory(), DEFAULT_BASE_PACKET_SIZE,
+                DEFAULT_MAX_PACKET_SIZE);
     }
 
     /**
      * Creates a new encoder with the specified {@code recordEncoder}.
+     *
+     * @param recordEncoder encodes DNS records into wire format
+     * @param names writes names in wire format
+     * @param baseBufferSize the initial buffer size to create - something
+     * slightly above average DNS query on-wire byte length
+     * @param maxBufferSize the maximum buffer size to allow
      */
-    public DatagramDnsQueryEncoder(DnsRecordEncoder recordEncoder) {
+    public DatagramDnsQueryEncoder(DnsRecordEncoder recordEncoder, NameCodec.Factory names,
+            int baseBufferSize, int maxBufferSize) {
         this.recordEncoder = checkNotNull(recordEncoder, "recordEncoder");
+        this.names = names;
+        this.baseBufferSize = baseBufferSize;
+        this.maxBufferSize = maxBufferSize;
     }
 
     @Override
@@ -63,43 +78,43 @@ public class DatagramDnsQueryEncoder
         final ByteBuf buf = allocateBuffer(ctx, in);
 
         boolean success = false;
+        NameCodec nameWriter = names.getForWrite();
         try {
             encodeHeader(query, buf);
-            encodeQuestions(query, buf);
-            encodeRecords(query, DnsSection.ADDITIONAL, buf);
+            encodeQuestions(nameWriter, query, buf);
+            encodeRecords(nameWriter, query, DnsSection.ADDITIONAL, buf);
             success = true;
         } finally {
             if (!success) {
                 buf.release();
             }
+            nameWriter.close();
         }
 
         out.add(new DatagramPacket(buf, recipient, null));
     }
 
     /**
-     * Allocate a {@link ByteBuf} which will be used for constructing a datagram packet.
-     * Sub-classes may override this method to return a {@link ByteBuf} with a perfect matching initial capacity.
+     * Allocate a {@link ByteBuf} which will be used for constructing a datagram
+     * packet. Sub-classes may override this method to return a {@link ByteBuf}
+     * with a perfect matching initial capacity.
      */
     protected ByteBuf allocateBuffer(
             ChannelHandlerContext ctx,
             @SuppressWarnings("unused") AddressedEnvelope<DnsQuery<?>, InetSocketAddress> msg) throws Exception {
-        return ctx.alloc().ioBuffer(1024);
+        return ctx.alloc().ioBuffer(baseBufferSize, maxBufferSize);
     }
 
     /**
      * Encodes the header that is always 12 bytes long.
      *
      * @param query the query header being encoded
-     * @param buf   the buffer the encoded data should be written to
+     * @param buf the buffer the encoded data should be written to
      */
-    private static void encodeHeader(DnsQuery query, ByteBuf buf) {
+    private static void encodeHeader(DnsQuery<?> query, ByteBuf buf) {
         buf.writeShort(query.id());
-        int flags = 0;
+        short flags = query.flags().value();
         flags |= (query.opCode().byteValue() & 0xFF) << 14;
-        if (query.isRecursionDesired()) {
-            flags |= 1 << 8;
-        }
         buf.writeShort(flags);
         buf.writeShort(query.count(DnsSection.QUESTION));
         buf.writeShort(0); // answerCount
@@ -107,17 +122,18 @@ public class DatagramDnsQueryEncoder
         buf.writeShort(query.count(DnsSection.ADDITIONAL));
     }
 
-    private void encodeQuestions(DnsQuery<?> query, ByteBuf buf) throws Exception {
+    private void encodeQuestions(NameCodec nameWriter, DnsQuery<?> query, ByteBuf buf) throws Exception {
         final int count = query.count(DnsSection.QUESTION);
         for (int i = 0; i < count; i ++) {
-            recordEncoder.encodeQuestion((DnsQuestion) query.recordAt(DnsSection.QUESTION, i), buf);
+            recordEncoder.encodeQuestion(nameWriter, (DnsQuestion) query.recordAt(DnsSection.QUESTION, i), buf);
         }
     }
 
-    private void encodeRecords(DnsQuery<?> query, DnsSection section, ByteBuf buf) throws Exception {
+    private void encodeRecords(NameCodec nameWriter, DnsQuery<?> query,
+            DnsSection section, ByteBuf buf) throws Exception {
         final int count = query.count(section);
         for (int i = 0; i < count; i ++) {
-            recordEncoder.encodeRecord(query.recordAt(section, i), buf);
+            recordEncoder.encodeRecord(nameWriter, query.recordAt(section, i), buf);
         }
     }
 }

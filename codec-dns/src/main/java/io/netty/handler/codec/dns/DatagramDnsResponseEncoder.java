@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 The Netty Project
+ * Copyright 2017 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -16,120 +16,129 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.AddressedEnvelope;
-import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.MessageToMessageEncoder;
-import io.netty.util.internal.UnstableApi;
-
-import java.net.InetSocketAddress;
+import io.netty.util.internal.ObjectUtil;
 import java.util.List;
-
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
-
+import io.netty.util.internal.UnstableApi;
 /**
- * Encodes a {@link DatagramDnsResponse} (or an {@link AddressedEnvelope} of {@link DnsResponse}} into a
- * {@link DatagramPacket}.
+ * Encodes DNS responses.
  */
 @UnstableApi
 @ChannelHandler.Sharable
 public class DatagramDnsResponseEncoder
-    extends MessageToMessageEncoder<AddressedEnvelope<DnsResponse, InetSocketAddress>> {
+        extends MessageToMessageEncoder<DatagramDnsResponse> {
 
-    private final DnsRecordEncoder recordEncoder;
+    private static final int FLAGS_QR = 15;
+    private static final int FLAGS_OPCODE = 11;
+    private static final int FLAGS_AA = 10;
+    private static final int FLAGS_TC = 9;
+    private static final int FLAGS_RD = 8;
+    private static final int FLAGS_RA = 7;
+    private static final int FLAGS_Z = 4;
+    /**
+     * Message type is query.
+     */
+    public static final int TYPE_QUERY = 0;
 
     /**
-     * Creates a new encoder with {@linkplain DnsRecordEncoder#DEFAULT the default record encoder}.
+     * Message type is response.
      */
+    public static final int TYPE_RESPONSE = 1;
+    private final int basePacketSize;
+    private final DnsRecordEncoder encoder;
+
+    static final int DEFAULT_BASE_PACKET_SIZE = 80;
+    static final int DEFAULT_MAX_PACKET_SIZE = 576;
+    private final int minPacketSize;
+
     public DatagramDnsResponseEncoder() {
         this(DnsRecordEncoder.DEFAULT);
     }
 
+    public DatagramDnsResponseEncoder(DnsRecordEncoder encoder) {
+        this(DEFAULT_BASE_PACKET_SIZE, DEFAULT_MAX_PACKET_SIZE, encoder);
+    }
+
+    public DatagramDnsResponseEncoder(int minPacketSize, int maxPacketSize, DnsRecordEncoder encoder) {
+        super(DatagramDnsResponse.class);
+        this.encoder = ObjectUtil.checkNotNull(encoder, "encoder");
+        if (minPacketSize < 48) {
+            throw new IllegalArgumentException("Packet base size too small");
+        }
+        if (maxPacketSize < 48) {
+            throw new IllegalArgumentException("Packet max size too small");
+        }
+        this.basePacketSize = maxPacketSize;
+        this.minPacketSize = minPacketSize;
+    }
+
     /**
-     * Creates a new encoder with the specified {@code recordEncoder}.
+     * Flip the bit at position <code>index</code> on or off.
+     *
+     * @param value The value to change
+     * @param index The bit-index
+     * @param on Whether or not the bit should be a 1
+     * @return The updated value
      */
-    public DatagramDnsResponseEncoder(DnsRecordEncoder recordEncoder) {
-        this.recordEncoder = checkNotNull(recordEncoder, "recordEncoder");
+    private static int flip(int value, int index, boolean on) {
+        int i = 1 << index;
+        if (on) {
+            value |= i;
+        } else {
+            value &= i ^ 0xFFFF;
+        }
+        return value;
     }
 
     @Override
-    protected void encode(ChannelHandlerContext ctx,
-                          AddressedEnvelope<DnsResponse, InetSocketAddress> in, List<Object> out) throws Exception {
+    protected void encode(ChannelHandlerContext ctx, DatagramDnsResponse msg, List<Object> out) throws Exception {
+        ByteBuf buf = ctx.alloc().buffer(minPacketSize, basePacketSize);
+        encode(msg, buf);
 
-        final InetSocketAddress recipient = in.recipient();
-        final DnsResponse response = in.content();
-        final ByteBuf buf = allocateBuffer(ctx, in);
-
-        boolean success = false;
-        try {
-            encodeHeader(response, buf);
-            encodeQuestions(response, buf);
-            encodeRecords(response, DnsSection.ANSWER, buf);
-            encodeRecords(response, DnsSection.AUTHORITY, buf);
-            encodeRecords(response, DnsSection.ADDITIONAL, buf);
-            success = true;
-        } finally {
-            if (!success) {
-                buf.release();
-            }
-        }
-
-        out.add(new DatagramPacket(buf, recipient, null));
+        DatagramPacket packet = new DatagramPacket(buf, msg.sender(), msg.recipient());
+        out.add(packet);
     }
 
     /**
-     * Allocate a {@link ByteBuf} which will be used for constructing a datagram packet.
-     * Sub-classes may override this method to return a {@link ByteBuf} with a perfect matching initial capacity.
-     */
-    protected ByteBuf allocateBuffer(
-        ChannelHandlerContext ctx,
-        @SuppressWarnings("unused") AddressedEnvelope<DnsResponse, InetSocketAddress> msg) throws Exception {
-        return ctx.alloc().ioBuffer(1024);
-    }
-
-    /**
-     * Encodes the header that is always 12 bytes long.
+     * Encode a DnsResponse into a buffer.  Public so caches can be serialized to disk
+     * in wire-format.
      *
-     * @param response the response header being encoded
-     * @param buf      the buffer the encoded data should be written to
+     * @param into
+     * @param msg
+     * @throws Exception
      */
-    private static void encodeHeader(DnsResponse response, ByteBuf buf) {
-        buf.writeShort(response.id());
-        int flags = 32768;
-        flags |= (response.opCode().byteValue() & 0xFF) << 11;
-        if (response.isAuthoritativeAnswer()) {
-            flags |= 1 << 10;
-        }
-        if (response.isTruncated()) {
-            flags |= 1 << 9;
-        }
-        if (response.isRecursionDesired()) {
-            flags |= 1 << 8;
-        }
-        if (response.isRecursionAvailable()) {
-            flags |= 1 << 7;
-        }
-        flags |= response.z() << 4;
-        flags |= response.code().intValue();
-        buf.writeShort(flags);
-        buf.writeShort(response.count(DnsSection.QUESTION));
-        buf.writeShort(response.count(DnsSection.ANSWER));
-        buf.writeShort(response.count(DnsSection.AUTHORITY));
-        buf.writeShort(response.count(DnsSection.ADDITIONAL));
-    }
+    public void encode(DnsResponse msg, ByteBuf into) throws Exception {
+        into.writeShort(msg.id());
+        short flags = msg.flags().value();
+        flags |= msg.code().intValue();
+        flags |= msg.opCode().byteValue() << FLAGS_OPCODE;
+        flags |= msg.z() << FLAGS_Z;
 
-    private void encodeQuestions(DnsResponse response, ByteBuf buf) throws Exception {
-        final int count = response.count(DnsSection.QUESTION);
-        for (int i = 0; i < count; i++) {
-            recordEncoder.encodeQuestion((DnsQuestion) response.recordAt(DnsSection.QUESTION, i), buf);
-        }
-    }
+        into.writeShort(flags);
+        into.writeShort(msg.count(DnsSection.QUESTION));
+        into.writeShort(msg.count(DnsSection.ANSWER));
+        into.writeShort(msg.count(DnsSection.AUTHORITY));
+        into.writeShort(msg.count(DnsSection.ADDITIONAL));
 
-    private void encodeRecords(DnsResponse response, DnsSection section, ByteBuf buf) throws Exception {
-        final int count = response.count(section);
-        for (int i = 0; i < count; i++) {
-            recordEncoder.encodeRecord(response.recordAt(section, i), buf);
+        // Only use the question section if an error code is set
+        DnsSection[] sections = msg.code() != DnsResponseCode.NOERROR
+                ? new DnsSection[]{DnsSection.QUESTION}
+                : new DnsSection[]{DnsSection.QUESTION, DnsSection.ANSWER, DnsSection.AUTHORITY,
+                    DnsSection.ADDITIONAL};
+
+        NameCodec nameCodec = NameCodec.compressingNameWriter();
+        try {
+            for (DnsSection sect : sections) {
+                int max = msg.count(sect);
+                for (int i = 0; i < max; i++) {
+                    DnsRecord record = msg.recordAt(sect, i);
+                    encoder.encodeRecord(nameCodec, record, into);
+                }
+            }
+        } finally {
+            nameCodec.close();
         }
     }
 }

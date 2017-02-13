@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 The Netty Project
+ * Copyright 2017 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -16,53 +16,60 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.MessageToMessageDecoder;
+import io.netty.handler.codec.dns.DnsMessageFlags.FlagSet;
 import io.netty.util.internal.UnstableApi;
-
+import static io.netty.handler.codec.dns.DnsMessageFlags.IS_REPLY;
+import java.net.InetSocketAddress;
 import java.util.List;
 
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
-
 /**
- * Decodes a {@link DatagramPacket} into a {@link DatagramDnsQuery}.
+ * Query decoder for DNS servers.
  */
 @UnstableApi
 @ChannelHandler.Sharable
 public class DatagramDnsQueryDecoder extends MessageToMessageDecoder<DatagramPacket> {
 
-    private final DnsRecordDecoder recordDecoder;
+    protected final DnsRecordDecoder recordDecoder;
+    protected final NameCodec.Factory names;
 
     /**
      * Creates a new decoder with {@linkplain DnsRecordDecoder#DEFAULT the default record decoder}.
      */
     public DatagramDnsQueryDecoder() {
-        this(DnsRecordDecoder.DEFAULT);
+        this(DnsRecordDecoder.DEFAULT, NameCodec.compressingFactory());
     }
 
     /**
      * Creates a new decoder with the specified {@code recordDecoder}.
      */
-    public DatagramDnsQueryDecoder(DnsRecordDecoder recordDecoder) {
-        this.recordDecoder = checkNotNull(recordDecoder, "recordDecoder");
+    public DatagramDnsQueryDecoder(DnsRecordDecoder decoder) {
+        this(decoder, NameCodec.compressingFactory());
+    }
+
+    public DatagramDnsQueryDecoder(DnsRecordDecoder decoder, NameCodec.Factory names) {
+        this.recordDecoder = decoder;
+        this.names = names;
     }
 
     @Override
     protected void decode(ChannelHandlerContext ctx, DatagramPacket packet, List<Object> out) throws Exception {
+        final InetSocketAddress sender = packet.sender();
         final ByteBuf buf = packet.content();
 
-        final DnsQuery query = newQuery(packet, buf);
+        final DatagramDnsQuery query = toQuery(sender, packet.recipient(), buf);
         boolean success = false;
+        NameCodec nameCodec = names.getForRead();
         try {
             final int questionCount = buf.readUnsignedShort();
             final int answerCount = buf.readUnsignedShort();
             final int authorityRecordCount = buf.readUnsignedShort();
             final int additionalRecordCount = buf.readUnsignedShort();
 
-            decodeQuestions(query, buf, questionCount);
+            decodeQuestions(query, buf, questionCount, nameCodec);
             decodeRecords(query, DnsSection.ANSWER, buf, answerCount);
             decodeRecords(query, DnsSection.AUTHORITY, buf, authorityRecordCount);
             decodeRecords(query, DnsSection.ADDITIONAL, buf, additionalRecordCount);
@@ -70,46 +77,34 @@ public class DatagramDnsQueryDecoder extends MessageToMessageDecoder<DatagramPac
             out.add(query);
             success = true;
         } finally {
+            nameCodec.close();
             if (!success) {
                 query.release();
             }
         }
     }
 
-    private static DnsQuery newQuery(DatagramPacket packet, ByteBuf buf) {
+    private DatagramDnsQuery toQuery(InetSocketAddress sender, InetSocketAddress recipient, ByteBuf buf) {
         final int id = buf.readUnsignedShort();
-
-        final int flags = buf.readUnsignedShort();
-        if (flags >> 15 == 1) {
-            throw new CorruptedFrameException("not a query");
+        short flags = buf.readShort();
+        FlagSet flagSet = DnsMessageFlags.forFlags(flags);
+        if (flagSet.contains(IS_REPLY)) {
+            throw new CorruptedFrameException("not a question - flags " + flagSet + " for id " + id + " from "
+                    + sender + " to " + recipient);
         }
-        final DnsQuery query =
-            new DatagramDnsQuery(
-                packet.sender(),
-                packet.recipient(),
-                id,
-                DnsOpCode.valueOf((byte) (flags >> 11 & 0xf)));
-        query.setRecursionDesired((flags >> 8 & 1) == 1);
+        final DatagramDnsQuery query = new DatagramDnsQuery(
+                sender, recipient,
+                id, DnsOpCode.valueOf((byte) (flags >> 11 & 0xf)), flagSet);
+
         query.setZ(flags >> 4 & 0x7);
         return query;
     }
 
-    private void decodeQuestions(DnsQuery query, ByteBuf buf, int questionCount) throws Exception {
-        for (int i = questionCount; i > 0; i--) {
-            query.addRecord(DnsSection.QUESTION, recordDecoder.decodeQuestion(buf));
-        }
-    }
-
-    private void decodeRecords(
-        DnsQuery query, DnsSection section, ByteBuf buf, int count) throws Exception {
-        for (int i = count; i > 0; i--) {
-            final DnsRecord r = recordDecoder.decodeRecord(buf);
-            if (r == null) {
-                // Truncated response
-                break;
-            }
-
-            query.addRecord(section, r);
+    private void decodeQuestions(DatagramDnsQuery query, ByteBuf buf, int questionCount,
+            NameCodec nameCodec) throws Exception {
+        for (int i = 0; i < questionCount; i++) {
+            DnsQuestion question = recordDecoder.decodeQuestion(buf, nameCodec);
+            query.addRecord(DnsSection.QUESTION, question);
         }
     }
 }
