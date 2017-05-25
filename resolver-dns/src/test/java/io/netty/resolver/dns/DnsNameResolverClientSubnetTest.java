@@ -60,7 +60,8 @@ public class DnsNameResolverClientSubnetTest {
     private static DnsNameResolverBuilder newResolver(EventLoopGroup group) {
         return new DnsNameResolverBuilder(group.next())
                 .channelType(NioDatagramChannel.class)
-                .nameServerAddresses(DnsServerAddresses.singleton(SocketUtils.socketAddress("8.8.8.8", 53)))
+                .nameServerProvider(
+                        new SingletonDnsServerAddressStreamProvider(SocketUtils.socketAddress("8.8.8.8", 53)))
                 .maxQueriesPerResolve(1)
                 .optResourceEnabled(false);
     }

@@ -54,12 +54,12 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyLong;
-import static org.mockito.Matchers.anyShort;
-import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.anyShort;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
@@ -198,7 +198,7 @@ public class DefaultHttp2ConnectionEncoderTest {
         final ByteBuf data = dummyData();
         ChannelPromise p = newPromise();
         encoder.writeData(ctx, STREAM_ID, data, 0, true, p);
-        assertEquals(payloadCaptor.getValue().size(), 8);
+        assertEquals(8, payloadCaptor.getValue().size());
         payloadCaptor.getValue().write(ctx, 8);
         assertEquals(0, payloadCaptor.getValue().size());
         assertEquals("abcdefgh", writtenData.get(0));
@@ -308,7 +308,7 @@ public class DefaultHttp2ConnectionEncoderTest {
         when(frameSizePolicy.maxFrameSize()).thenReturn(5);
         ChannelPromise p = newPromise();
         encoder.writeData(ctx, STREAM_ID, data, 10, true, p);
-        assertEquals(payloadCaptor.getValue().size(), 10);
+        assertEquals(10, payloadCaptor.getValue().size());
         payloadCaptor.getValue().write(ctx, 10);
         // writer was called 2 times
         assertEquals(1, writtenData.size());

@@ -23,6 +23,7 @@ import static io.netty.handler.codec.dns.NameCodec.Feature.COMPRESSION;
 import static io.netty.handler.codec.dns.NameCodec.Feature.READ_TRAILING_DOT;
 import static io.netty.handler.codec.dns.NameCodec.Feature.WRITE_TRAILING_DOT;
 import io.netty.util.AsciiString;
+import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.SocketUtils;
 import io.netty.util.internal.StringUtil;
 import static io.netty.util.internal.StringUtil.charSequencesEqual;
@@ -177,6 +178,6 @@ public class DefaultDnsRecordEncoderTest {
     }
 
     private static int nextInt(int max) {
-        return ThreadLocalRandom.current().nextInt(0, max);
+        return PlatformDependent.threadLocalRandom().nextInt(max);
     }
 }

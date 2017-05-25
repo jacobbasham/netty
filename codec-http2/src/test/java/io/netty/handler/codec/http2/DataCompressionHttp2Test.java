@@ -55,11 +55,11 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyShort;
-import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyShort;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 
@@ -81,6 +81,7 @@ public class DataCompressionHttp2Test {
     private Bootstrap cb;
     private Channel serverChannel;
     private Channel clientChannel;
+    private volatile Channel serverConnectedChannel;
     private CountDownLatch serverLatch;
     private Http2Connection serverConnection;
     private Http2Connection clientConnection;
@@ -113,7 +114,7 @@ public class DataCompressionHttp2Test {
     }
 
     @After
-    public void cleaup() throws IOException {
+    public void cleanup() throws IOException {
         serverOut.close();
     }
 
@@ -126,6 +127,11 @@ public class DataCompressionHttp2Test {
         if (serverChannel != null) {
             serverChannel.close().sync();
             serverChannel = null;
+        }
+        final Channel serverConnectedChannel = this.serverConnectedChannel;
+        if (serverConnectedChannel != null) {
+            serverConnectedChannel.close().sync();
+            this.serverConnectedChannel = null;
         }
         Future<?> serverGroup = sb.config().group().shutdownGracefully(0, 0, MILLISECONDS);
         Future<?> serverChildGroup = sb.config().childGroup().shutdownGracefully(0, 0, MILLISECONDS);
@@ -297,6 +303,7 @@ public class DataCompressionHttp2Test {
         sb.childHandler(new ChannelInitializer<Channel>() {
             @Override
             protected void initChannel(Channel ch) throws Exception {
+                serverConnectedChannel = ch;
                 ChannelPipeline p = ch.pipeline();
                 Http2FrameWriter frameWriter = new DefaultHttp2FrameWriter();
                 serverConnection.remote().flowController(

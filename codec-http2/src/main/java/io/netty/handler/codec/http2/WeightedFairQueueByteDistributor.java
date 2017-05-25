@@ -33,8 +33,6 @@ import java.util.List;
 import static io.netty.handler.codec.http2.Http2CodecUtil.CONNECTION_STREAM_ID;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_MIN_ALLOCATION_CHUNK;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_PRIORITY_WEIGHT;
-import static io.netty.handler.codec.http2.Http2CodecUtil.MAX_WEIGHT;
-import static io.netty.handler.codec.http2.Http2CodecUtil.MIN_WEIGHT;
 import static io.netty.handler.codec.http2.Http2CodecUtil.streamableBytes;
 import static io.netty.handler.codec.http2.Http2Error.INTERNAL_ERROR;
 import static io.netty.handler.codec.http2.Http2Exception.connectionError;
@@ -48,8 +46,7 @@ import static java.lang.Math.min;
  * bytes.
  * <p>
  * Inspiration for this distributor was taken from Linux's
- * <a href="https://git.kernel.org/cgit/linux/kernel/git/stable/linux-stable.git/tree/Documentation/scheduler
- * /sched-design-CFS.txt">Completely Fair Scheduler</a>
+ * <a href="https://www.kernel.org/doc/Documentation/scheduler/sched-design-CFS.txt">Completely Fair Scheduler</a>
  * to model the distribution of bytes to simulate an "ideal multi-tasking CPU", but in this case we are simulating
  * an "ideal multi-tasking NIC".
  * <p>
@@ -198,14 +195,6 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
 
     @Override
     public void updateDependencyTree(int childStreamId, int parentStreamId, short weight, boolean exclusive) {
-        if (weight < MIN_WEIGHT || weight > MAX_WEIGHT) {
-            throw new IllegalArgumentException(String.format(
-                    "Invalid weight: %d. Must be between %d and %d (inclusive).", weight, MIN_WEIGHT, MAX_WEIGHT));
-        }
-        if (childStreamId == parentStreamId) {
-            throw new IllegalArgumentException("A stream cannot depend on itself");
-        }
-
         State state = state(childStreamId);
         if (state == null) {
             // If there is no State object that means there is no Http2Stream object and we would have to keep the
@@ -230,6 +219,10 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
             newParent = new State(parentStreamId);
             stateOnlyRemovalQueue.add(newParent);
             stateOnlyMap.put(parentStreamId, newParent);
+            // Only the stream which was just added will change parents. So we only need an array of size 1.
+            List<ParentChangedEvent> events = new ArrayList<ParentChangedEvent>(1);
+            connectionState.takeChild(newParent, false, events);
+            notifyParentChanged(events);
         }
 
         // if activeCountForTree == 0 then it will not be in its parent's pseudoTimeQueue and thus should not be counted
@@ -771,7 +764,7 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
                     .append(" flags ").append(flags)
                     .append(" pseudoTimeQueue.size() ").append(pseudoTimeQueue.size())
                     .append(" stateOnlyQueueIndex ").append(stateOnlyQueueIndex)
-                    .append(" parent ").append(parent).append("} [");
+                    .append(" parent.streamId ").append(parent == null ? -1 : parent.streamId).append("} [");
 
             if (!pseudoTimeQueue.isEmpty()) {
                 for (State s : pseudoTimeQueue) {

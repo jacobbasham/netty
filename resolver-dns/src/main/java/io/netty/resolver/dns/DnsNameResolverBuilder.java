@@ -15,8 +15,6 @@
  */
 package io.netty.resolver.dns;
 
-import static io.netty.util.internal.ObjectUtil.intValue;
-
 import io.netty.channel.ChannelFactory;
 import io.netty.channel.EventLoop;
 import io.netty.channel.ReflectiveChannelFactory;
@@ -29,17 +27,17 @@ import io.netty.util.internal.UnstableApi;
 import java.util.ArrayList;
 import java.util.List;
 
+import static io.netty.resolver.dns.DnsServerAddressStreamProviders.platformDefault;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import static io.netty.util.internal.ObjectUtil.intValue;
 
 /**
  * A {@link DnsNameResolver} builder.
  */
 @UnstableApi
 public final class DnsNameResolverBuilder {
-
     private final EventLoop eventLoop;
     private ChannelFactory<? extends DatagramChannel> channelFactory;
-    private DnsServerAddresses nameServerAddresses = DnsServerAddresses.defaultAddresses();
     private DnsCache resolveCache;
     private DnsCache authoritativeDnsServerCache;
     private Integer minTtl;
@@ -53,6 +51,9 @@ public final class DnsNameResolverBuilder {
     private int maxPayloadSize = 4096;
     private boolean optResourceEnabled = true;
     private HostsFileEntriesResolver hostsFileEntriesResolver = HostsFileEntriesResolver.DEFAULT;
+    private DnsServerAddressStreamProvider dnsServerAddressStreamProvider = platformDefault();
+    private DnsQueryLifecycleObserverFactory dnsQueryLifecycleObserverFactory =
+            NoopDnsQueryLifecycleObserverFactory.INSTANCE;
     private String[] searchDomains = DnsNameResolver.DEFAULT_SEARCH_DOMAINS;
     private int ndots = 1;
     private boolean decodeIdn = true;
@@ -90,17 +91,6 @@ public final class DnsNameResolverBuilder {
     }
 
     /**
-     * Sets the addresses of the DNS server.
-     *
-     * @param nameServerAddresses the DNS server addresses
-     * @return {@code this}
-     */
-    public DnsNameResolverBuilder nameServerAddresses(DnsServerAddresses nameServerAddresses) {
-        this.nameServerAddresses = nameServerAddresses;
-        return this;
-    }
-
-    /**
      * Sets the cache for resolution results.
      *
      * @param resolveCache the DNS resolution results cache
@@ -112,9 +102,20 @@ public final class DnsNameResolverBuilder {
     }
 
     /**
-     * Sets the cache for authoritive NS servers
+     * Set the factory used to generate objects which can observe individual DNS queries.
+     * @param lifecycleObserverFactory the factory used to generate objects which can observe individual DNS queries.
+     * @return {@code this}
+     */
+    public DnsNameResolverBuilder dnsQueryLifecycleObserverFactory(DnsQueryLifecycleObserverFactory
+                                                                           lifecycleObserverFactory) {
+        this.dnsQueryLifecycleObserverFactory = checkNotNull(lifecycleObserverFactory, "lifecycleObserverFactory");
+        return this;
+    }
+
+    /**
+     * Sets the cache for authoritative NS servers
      *
-     * @param authoritativeDnsServerCache the authoritive NS servers cache
+     * @param authoritativeDnsServerCache the authoritative NS servers cache
      * @return {@code this}
      */
     public DnsNameResolverBuilder authoritativeDnsServerCache(DnsCache authoritativeDnsServerCache) {
@@ -274,6 +275,17 @@ public final class DnsNameResolverBuilder {
     }
 
     /**
+     * Set the {@link DnsServerAddressStreamProvider} which is used to determine which DNS server is used to resolve
+     * each hostname.
+     * @return {@code this}.
+     */
+    public DnsNameResolverBuilder nameServerProvider(DnsServerAddressStreamProvider dnsServerAddressStreamProvider) {
+        this.dnsServerAddressStreamProvider =
+                checkNotNull(dnsServerAddressStreamProvider, "dnsServerAddressStreamProvider");
+        return this;
+    }
+
+    /**
      * Set the list of search domains of the resolver.
      *
      * @param searchDomains the search domains
@@ -349,9 +361,9 @@ public final class DnsNameResolverBuilder {
         return new DnsNameResolver(
                 eventLoop,
                 channelFactory,
-                nameServerAddresses,
                 resolveCache,
                 authoritativeDnsServerCache,
+                dnsQueryLifecycleObserverFactory,
                 queryTimeoutMillis,
                 resolvedAddressTypes,
                 recursionDesired,
@@ -360,6 +372,7 @@ public final class DnsNameResolverBuilder {
                 maxPayloadSize,
                 optResourceEnabled,
                 hostsFileEntriesResolver,
+                dnsServerAddressStreamProvider,
                 searchDomains,
                 ndots,
                 decodeIdn);

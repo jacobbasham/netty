@@ -37,3 +37,6 @@ dependency-reduced-pom.xml
 nbproject/
 nb-configuration.xml
 
+# Diff artifacts
+*.orig
+

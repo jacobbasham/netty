@@ -89,8 +89,8 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         this.maxOrder = maxOrder;
         this.pageShifts = pageShifts;
         this.chunkSize = chunkSize;
-        this.directMemoryCacheAlignment = cacheAlignment;
-        this.directMemoryCacheAlignmentMask = cacheAlignment - 1;
+        directMemoryCacheAlignment = cacheAlignment;
+        directMemoryCacheAlignmentMask = cacheAlignment - 1;
         subpageOverflowMask = ~(pageSize - 1);
         tinySubpagePools = newSubpagePoolArray(numTinySubpagePools);
         for (int i = 0; i < tinySubpagePools.length; i ++) {
@@ -103,12 +103,12 @@ abstract class PoolArena<T> implements PoolArenaMetric {
             smallSubpagePools[i] = newSubpagePoolHead(pageSize);
         }
 
-        q100 = new PoolChunkList<T>(null, 100, Integer.MAX_VALUE, chunkSize);
-        q075 = new PoolChunkList<T>(q100, 75, 100, chunkSize);
-        q050 = new PoolChunkList<T>(q075, 50, 100, chunkSize);
-        q025 = new PoolChunkList<T>(q050, 25, 75, chunkSize);
-        q000 = new PoolChunkList<T>(q025, 1, 50, chunkSize);
-        qInit = new PoolChunkList<T>(q000, Integer.MIN_VALUE, 25, chunkSize);
+        q100 = new PoolChunkList<T>(this, null, 100, Integer.MAX_VALUE, chunkSize);
+        q075 = new PoolChunkList<T>(this, q100, 75, 100, chunkSize);
+        q050 = new PoolChunkList<T>(this, q075, 50, 100, chunkSize);
+        q025 = new PoolChunkList<T>(this, q050, 25, 75, chunkSize);
+        q000 = new PoolChunkList<T>(this, q025, 1, 50, chunkSize);
+        qInit = new PoolChunkList<T>(this, q000, Integer.MIN_VALUE, 25, chunkSize);
 
         q100.prevList(q075);
         q075.prevList(q050);
@@ -232,7 +232,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
     }
 
-    // Method must be called insided synchronized(this) { ... } block
+    // Method must be called inside synchronized(this) { ... } block
     private void allocateNormal(PooledByteBuf<T> buf, int reqCapacity, int normCapacity) {
         if (q050.allocate(buf, reqCapacity, normCapacity) || q025.allocate(buf, reqCapacity, normCapacity) ||
             q000.allocate(buf, reqCapacity, normCapacity) || qInit.allocate(buf, reqCapacity, normCapacity) ||
@@ -672,6 +672,10 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                     directMemoryCacheAlignment);
         }
 
+        private static byte[] newByteArray(int size) {
+            return PlatformDependent.allocateUninitializedArray(size);
+        }
+
         @Override
         boolean isDirect() {
             return false;
@@ -679,12 +683,12 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
         @Override
         protected PoolChunk<byte[]> newChunk(int pageSize, int maxOrder, int pageShifts, int chunkSize) {
-            return new PoolChunk<byte[]>(this, new byte[chunkSize], pageSize, maxOrder, pageShifts, chunkSize, 0);
+            return new PoolChunk<byte[]>(this, newByteArray(chunkSize), pageSize, maxOrder, pageShifts, chunkSize, 0);
         }
 
         @Override
         protected PoolChunk<byte[]> newUnpooledChunk(int capacity) {
-            return new PoolChunk<byte[]>(this, new byte[capacity], capacity, 0);
+            return new PoolChunk<byte[]>(this, newByteArray(capacity), capacity, 0);
         }
 
         @Override
@@ -722,7 +726,10 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
 
         private int offsetCacheLine(ByteBuffer memory) {
-            return (int) (PlatformDependent.directBufferAddress(memory) & directMemoryCacheAlignmentMask);
+            // We can only calculate the offset if Unsafe is present as otherwise directBufferAddress(...) will
+            // throw an NPE.
+            return HAS_UNSAFE ?
+                    (int) (PlatformDependent.directBufferAddress(memory) & directMemoryCacheAlignmentMask) : 0;
         }
 
         @Override

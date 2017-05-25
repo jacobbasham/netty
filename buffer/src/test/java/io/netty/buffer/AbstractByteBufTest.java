@@ -18,9 +18,8 @@ package io.netty.buffer;
 import io.netty.util.ByteProcessor;
 import io.netty.util.CharsetUtil;
 import io.netty.util.IllegalReferenceCountException;
-import io.netty.util.internal.ThreadLocalRandom;
+import io.netty.util.internal.PlatformDependent;
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -38,7 +37,6 @@ import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -52,6 +50,7 @@ import static io.netty.buffer.Unpooled.LITTLE_ENDIAN;
 import static io.netty.buffer.Unpooled.buffer;
 import static io.netty.buffer.Unpooled.copiedBuffer;
 import static io.netty.buffer.Unpooled.directBuffer;
+import static io.netty.buffer.Unpooled.unreleasableBuffer;
 import static io.netty.buffer.Unpooled.wrappedBuffer;
 import static io.netty.util.internal.EmptyArrays.EMPTY_BYTES;
 import static org.hamcrest.CoreMatchers.is;
@@ -73,6 +72,7 @@ public abstract class AbstractByteBufTest {
 
     private static final int CAPACITY = 4096; // Must be even
     private static final int BLOCK_SIZE = 128;
+    private static final int JAVA_BYTEBUFFER_CONSISTENCY_ITERATIONS = 100;
 
     private long seed;
     private Random random;
@@ -462,6 +462,40 @@ public abstract class AbstractByteBufTest {
     }
 
     @Test
+    public void testShortConsistentWithByteBuffer() {
+        testShortConsistentWithByteBuffer(true, true);
+        testShortConsistentWithByteBuffer(true, false);
+        testShortConsistentWithByteBuffer(false, true);
+        testShortConsistentWithByteBuffer(false, false);
+    }
+
+    private void testShortConsistentWithByteBuffer(boolean direct, boolean testBigEndian) {
+        for (int i = 0; i < JAVA_BYTEBUFFER_CONSISTENCY_ITERATIONS; ++i) {
+            ByteBuffer javaBuffer = direct ? ByteBuffer.allocateDirect(buffer.capacity())
+                                           : ByteBuffer.allocate(buffer.capacity());
+            if (!testBigEndian) {
+                javaBuffer = javaBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            }
+
+            short expected = (short) (random.nextInt() & 0xFFFF);
+            javaBuffer.putShort(expected);
+
+            final int bufferIndex = buffer.capacity() - 2;
+            if (testBigEndian) {
+                buffer.setShort(bufferIndex, expected);
+            } else {
+                buffer.setShortLE(bufferIndex, expected);
+            }
+            javaBuffer.flip();
+
+            short javaActual = javaBuffer.getShort();
+            assertEquals(expected, javaActual);
+            assertEquals(javaActual, testBigEndian ? buffer.getShort(bufferIndex)
+                                                   : buffer.getShortLE(bufferIndex));
+        }
+    }
+
+    @Test
     public void testRandomUnsignedShortAccess() {
         testRandomUnsignedShortAccess(true);
     }
@@ -555,6 +589,40 @@ public abstract class AbstractByteBufTest {
     }
 
     @Test
+    public void testMediumConsistentWithByteBuffer() {
+        testMediumConsistentWithByteBuffer(true, true);
+        testMediumConsistentWithByteBuffer(true, false);
+        testMediumConsistentWithByteBuffer(false, true);
+        testMediumConsistentWithByteBuffer(false, false);
+    }
+
+    private void testMediumConsistentWithByteBuffer(boolean direct, boolean testBigEndian) {
+        for (int i = 0; i < JAVA_BYTEBUFFER_CONSISTENCY_ITERATIONS; ++i) {
+            ByteBuffer javaBuffer = direct ? ByteBuffer.allocateDirect(buffer.capacity())
+                                           : ByteBuffer.allocate(buffer.capacity());
+            if (!testBigEndian) {
+                javaBuffer = javaBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            }
+
+            int expected = random.nextInt() & 0x00FFFFFF;
+            javaBuffer.putInt(expected);
+
+            final int bufferIndex = buffer.capacity() - 3;
+            if (testBigEndian) {
+                buffer.setMedium(bufferIndex, expected);
+            } else {
+                buffer.setMediumLE(bufferIndex, expected);
+            }
+            javaBuffer.flip();
+
+            int javaActual = javaBuffer.getInt();
+            assertEquals(expected, javaActual);
+            assertEquals(javaActual, testBigEndian ? buffer.getUnsignedMedium(bufferIndex)
+                                                   : buffer.getUnsignedMediumLE(bufferIndex));
+        }
+    }
+
+    @Test
     public void testRandomIntAccess() {
         testRandomIntAccess(true);
     }
@@ -582,6 +650,40 @@ public abstract class AbstractByteBufTest {
             } else {
                 assertEquals(value, buffer.getIntLE(i));
             }
+        }
+    }
+
+    @Test
+    public void testIntConsistentWithByteBuffer() {
+        testIntConsistentWithByteBuffer(true, true);
+        testIntConsistentWithByteBuffer(true, false);
+        testIntConsistentWithByteBuffer(false, true);
+        testIntConsistentWithByteBuffer(false, false);
+    }
+
+    private void testIntConsistentWithByteBuffer(boolean direct, boolean testBigEndian) {
+        for (int i = 0; i < JAVA_BYTEBUFFER_CONSISTENCY_ITERATIONS; ++i) {
+            ByteBuffer javaBuffer = direct ? ByteBuffer.allocateDirect(buffer.capacity())
+                                           : ByteBuffer.allocate(buffer.capacity());
+            if (!testBigEndian) {
+                javaBuffer = javaBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            }
+
+            int expected = random.nextInt();
+            javaBuffer.putInt(expected);
+
+            final int bufferIndex = buffer.capacity() - 4;
+            if (testBigEndian) {
+                buffer.setInt(bufferIndex, expected);
+            } else {
+                buffer.setIntLE(bufferIndex, expected);
+            }
+            javaBuffer.flip();
+
+            int javaActual = javaBuffer.getInt();
+            assertEquals(expected, javaActual);
+            assertEquals(javaActual, testBigEndian ? buffer.getInt(bufferIndex)
+                                                   : buffer.getIntLE(bufferIndex));
         }
     }
 
@@ -644,6 +746,40 @@ public abstract class AbstractByteBufTest {
             } else {
                 assertEquals(value, buffer.getLongLE(i));
             }
+        }
+    }
+
+    @Test
+    public void testLongConsistentWithByteBuffer() {
+        testLongConsistentWithByteBuffer(true, true);
+        testLongConsistentWithByteBuffer(true, false);
+        testLongConsistentWithByteBuffer(false, true);
+        testLongConsistentWithByteBuffer(false, false);
+    }
+
+    private void testLongConsistentWithByteBuffer(boolean direct, boolean testBigEndian) {
+        for (int i = 0; i < JAVA_BYTEBUFFER_CONSISTENCY_ITERATIONS; ++i) {
+            ByteBuffer javaBuffer = direct ? ByteBuffer.allocateDirect(buffer.capacity())
+                                           : ByteBuffer.allocate(buffer.capacity());
+            if (!testBigEndian) {
+                javaBuffer = javaBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            }
+
+            long expected = random.nextLong();
+            javaBuffer.putLong(expected);
+
+            final int bufferIndex = buffer.capacity() - 8;
+            if (testBigEndian) {
+                buffer.setLong(bufferIndex, expected);
+            } else {
+                buffer.setLongLE(bufferIndex, expected);
+            }
+            javaBuffer.flip();
+
+            long javaActual = javaBuffer.getLong();
+            assertEquals(expected, javaActual);
+            assertEquals(javaActual, testBigEndian ? buffer.getLong(bufferIndex)
+                                                   : buffer.getLongLE(bufferIndex));
         }
     }
 
@@ -2122,14 +2258,14 @@ public abstract class AbstractByteBufTest {
 
     private void testInternalNioBuffer(int a) {
         ByteBuf buffer = newBuffer(2);
-        ByteBuffer buf = buffer.internalNioBuffer(0, 1);
+        ByteBuffer buf = buffer.internalNioBuffer(buffer.readerIndex(), 1);
         assertEquals(1, buf.remaining());
 
         byte[] data = new byte[a];
-        ThreadLocalRandom.current().nextBytes(data);
+        PlatformDependent.threadLocalRandom().nextBytes(data);
         buffer.writeBytes(data);
 
-        buf = buffer.internalNioBuffer(0, a);
+        buf = buffer.internalNioBuffer(buffer.readerIndex(), a);
         assertEquals(a, buf.remaining());
 
         for (int i = 0; i < a; i++) {
@@ -2332,6 +2468,23 @@ public abstract class AbstractByteBufTest {
         for (int i = 1; nioBuf.hasRemaining(); i++) {
             assertEquals(data[i], nioBuf.get());
         }
+        buffer.release();
+    }
+
+    @Test
+    public void ensureWritableWithForceDoesNotThrow() {
+        ensureWritableDoesNotThrow(true);
+    }
+
+    @Test
+    public void ensureWritableWithOutForceDoesNotThrow() {
+        ensureWritableDoesNotThrow(false);
+    }
+
+    private void ensureWritableDoesNotThrow(boolean force) {
+        final ByteBuf buffer = newBuffer(8);
+        buffer.writerIndex(buffer.capacity());
+        buffer.ensureWritable(8, force);
         buffer.release();
     }
 
@@ -2974,7 +3127,8 @@ public abstract class AbstractByteBufTest {
 
     @Test(expected = IllegalReferenceCountException.class)
     public void testInternalNioBufferAfterRelease() {
-        releasedBuffer().internalNioBuffer(0, 1);
+        ByteBuf releasedBuffer = releasedBuffer();
+        releasedBuffer.internalNioBuffer(releasedBuffer.readerIndex(), 1);
     }
 
     @Test(expected = IllegalReferenceCountException.class)
@@ -3322,6 +3476,106 @@ public abstract class AbstractByteBufTest {
     @Test(expected = UnsupportedOperationException.class)
     public void testRetainedSliceCapacityChange() {
         testSliceCapacityChange(true);
+    }
+
+    @Test
+    public void testRetainedSliceUnreleasable1() {
+        testRetainedSliceUnreleasable(true, true);
+    }
+
+    @Test
+    public void testRetainedSliceUnreleasable2() {
+        testRetainedSliceUnreleasable(true, false);
+    }
+
+    @Test
+    public void testRetainedSliceUnreleasable3() {
+        testRetainedSliceUnreleasable(false, true);
+    }
+
+    @Test
+    public void testRetainedSliceUnreleasable4() {
+        testRetainedSliceUnreleasable(false, false);
+    }
+
+    @Test
+    public void testReadRetainedSliceUnreleasable1() {
+        testReadRetainedSliceUnreleasable(true, true);
+    }
+
+    @Test
+    public void testReadRetainedSliceUnreleasable2() {
+        testReadRetainedSliceUnreleasable(true, false);
+    }
+
+    @Test
+    public void testReadRetainedSliceUnreleasable3() {
+        testReadRetainedSliceUnreleasable(false, true);
+    }
+
+    @Test
+    public void testReadRetainedSliceUnreleasable4() {
+        testReadRetainedSliceUnreleasable(false, false);
+    }
+
+    @Test
+    public void testRetainedDuplicateUnreleasable1() {
+        testRetainedDuplicateUnreleasable(true, true);
+    }
+
+    @Test
+    public void testRetainedDuplicateUnreleasable2() {
+        testRetainedDuplicateUnreleasable(true, false);
+    }
+
+    @Test
+    public void testRetainedDuplicateUnreleasable3() {
+        testRetainedDuplicateUnreleasable(false, true);
+    }
+
+    @Test
+    public void testRetainedDuplicateUnreleasable4() {
+        testRetainedDuplicateUnreleasable(false, false);
+    }
+
+    private void testRetainedSliceUnreleasable(boolean initRetainedSlice, boolean finalRetainedSlice) {
+        ByteBuf buf = newBuffer(8);
+        ByteBuf buf1 = initRetainedSlice ? buf.retainedSlice() : buf.slice().retain();
+        ByteBuf buf2 = unreleasableBuffer(buf1);
+        ByteBuf buf3 = finalRetainedSlice ? buf2.retainedSlice() : buf2.slice().retain();
+        assertFalse(buf3.release());
+        assertFalse(buf2.release());
+        buf1.release();
+        assertTrue(buf.release());
+        assertEquals(0, buf1.refCnt());
+        assertEquals(0, buf.refCnt());
+    }
+
+    private void testReadRetainedSliceUnreleasable(boolean initRetainedSlice, boolean finalRetainedSlice) {
+        ByteBuf buf = newBuffer(8);
+        ByteBuf buf1 = initRetainedSlice ? buf.retainedSlice() : buf.slice().retain();
+        ByteBuf buf2 = unreleasableBuffer(buf1);
+        ByteBuf buf3 = finalRetainedSlice ? buf2.readRetainedSlice(buf2.readableBytes())
+                                          : buf2.readSlice(buf2.readableBytes()).retain();
+        assertFalse(buf3.release());
+        assertFalse(buf2.release());
+        buf1.release();
+        assertTrue(buf.release());
+        assertEquals(0, buf1.refCnt());
+        assertEquals(0, buf.refCnt());
+    }
+
+    private void testRetainedDuplicateUnreleasable(boolean initRetainedDuplicate, boolean finalRetainedDuplicate) {
+        ByteBuf buf = newBuffer(8);
+        ByteBuf buf1 = initRetainedDuplicate ? buf.retainedDuplicate() : buf.duplicate().retain();
+        ByteBuf buf2 = unreleasableBuffer(buf1);
+        ByteBuf buf3 = finalRetainedDuplicate ? buf2.retainedDuplicate() : buf2.duplicate().retain();
+        assertFalse(buf3.release());
+        assertFalse(buf2.release());
+        buf1.release();
+        assertTrue(buf.release());
+        assertEquals(0, buf1.refCnt());
+        assertEquals(0, buf.refCnt());
     }
 
     private void testDuplicateCapacityChange(boolean retainedDuplicate) {

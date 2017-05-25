@@ -28,13 +28,14 @@ import static io.netty.util.internal.ObjectUtil.*;
 public final class StringUtil {
 
     public static final String EMPTY_STRING = "";
-    public static final String NEWLINE = System.getProperty("line.separator");
+    public static final String NEWLINE = SystemPropertyUtil.get("line.separator", "\n");
 
     public static final char DOUBLE_QUOTE = '\"';
     public static final char COMMA = ',';
     public static final char LINE_FEED = '\n';
     public static final char CARRIAGE_RETURN = '\r';
     public static final char TAB = '\t';
+    public static final char SPACE = 0x20;
 
     private static final String[] BYTE2HEX_PAD = new String[256];
     private static final String[] BYTE2HEX_NOPAD = new String[256];
@@ -245,22 +246,51 @@ public final class StringUtil {
      * @return {@link CharSequence} the escaped value if necessary, or the value unchanged
      */
     public static CharSequence escapeCsv(CharSequence value) {
+        return escapeCsv(value, false);
+    }
+
+    /**
+     * Escapes the specified value, if necessary according to
+     * <a href="https://tools.ietf.org/html/rfc4180#section-2">RFC-4180</a>.
+     *
+     * @param value          The value which will be escaped according to
+     *                       <a href="https://tools.ietf.org/html/rfc4180#section-2">RFC-4180</a>
+     * @param trimWhiteSpace The value will first be trimmed of its optional white-space characters,
+     *                       according to <a href="https://tools.ietf.org/html/rfc7230#section-7">RFC-7230</a>
+     * @return {@link CharSequence} the escaped value if necessary, or the value unchanged
+     */
+    public static CharSequence escapeCsv(CharSequence value, boolean trimWhiteSpace) {
         int length = checkNotNull(value, "value").length();
         if (length == 0) {
             return value;
         }
+
+        int start = 0;
         int last = length - 1;
-        boolean quoted = isDoubleQuote(value.charAt(0)) && isDoubleQuote(value.charAt(last)) && length != 1;
+        boolean trimmed = false;
+        if (trimWhiteSpace) {
+            start = indexOfFirstNonOwsChar(value, length);
+            if (start == length) {
+                return EMPTY_STRING;
+            }
+            last = indexOfLastNonOwsChar(value, start, length);
+            trimmed = start > 0 || last < length - 1;
+            if (trimmed) {
+                length = last - start + 1;
+            }
+        }
+
+        StringBuilder result = new StringBuilder(length + CSV_NUMBER_ESCAPE_CHARACTERS);
+        boolean quoted = isDoubleQuote(value.charAt(start)) && isDoubleQuote(value.charAt(last)) && length != 1;
         boolean foundSpecialCharacter = false;
         boolean escapedDoubleQuote = false;
-        StringBuilder escaped = new StringBuilder(length + CSV_NUMBER_ESCAPE_CHARACTERS).append(DOUBLE_QUOTE);
-        for (int i = 0; i < length; i++) {
+        for (int i = start; i <= last; i++) {
             char current = value.charAt(i);
             switch (current) {
                 case DOUBLE_QUOTE:
-                    if (i == 0 || i == last) {
+                    if (i == start || i == last) {
                         if (!quoted) {
-                            escaped.append(DOUBLE_QUOTE);
+                            result.append(DOUBLE_QUOTE);
                         } else {
                             continue;
                         }
@@ -268,7 +298,7 @@ public final class StringUtil {
                         boolean isNextCharDoubleQuote = isDoubleQuote(value.charAt(i + 1));
                         if (!isDoubleQuote(value.charAt(i - 1)) &&
                                 (!isNextCharDoubleQuote || i + 1 == last)) {
-                            escaped.append(DOUBLE_QUOTE);
+                            result.append(DOUBLE_QUOTE);
                             escapedDoubleQuote = true;
                         }
                         break;
@@ -278,10 +308,20 @@ public final class StringUtil {
                 case COMMA:
                     foundSpecialCharacter = true;
             }
-            escaped.append(current);
+            result.append(current);
         }
-        return escapedDoubleQuote || foundSpecialCharacter && !quoted ?
-                escaped.append(DOUBLE_QUOTE) : value;
+
+        if (escapedDoubleQuote || foundSpecialCharacter && !quoted) {
+            return quote(result);
+        }
+        if (trimmed) {
+            return quoted ? quote(result) : result;
+        }
+        return value;
+    }
+
+    private static StringBuilder quote(StringBuilder builder) {
+        return builder.insert(0, DOUBLE_QUOTE).append(DOUBLE_QUOTE);
     }
 
     /**
@@ -391,7 +431,7 @@ public final class StringUtil {
         return unescaped;
     }
 
-    /**s
+    /**
      * Validate if {@code value} is a valid csv field without double-quotes.
      *
      * @throws IllegalArgumentException if {@code value} needs to be encoded with double-quotes.
@@ -430,6 +470,22 @@ public final class StringUtil {
     }
 
     /**
+     * Find the index of the first non-white space character in {@code s} starting at {@code offset}.
+     *
+     * @param seq    The string to search.
+     * @param offset The offset to start searching at.
+     * @return the index of the first non-white space character or &lt;{@code 0} if none was found.
+     */
+    public static int indexOfNonWhiteSpace(CharSequence seq, int offset) {
+        for (; offset < seq.length(); ++offset) {
+            if (!Character.isWhitespace(seq.charAt(offset))) {
+                return offset;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Determine if {@code c} lies within the range of values defined for
      * <a href="http://unicode.org/glossary/#surrogate_code_point">Surrogate Code Point</a>.
      * @param c the character to check.
@@ -454,6 +510,49 @@ public final class StringUtil {
     public static boolean endsWith(CharSequence s, char c) {
         int len = s.length();
         return len > 0 && s.charAt(len - 1) == c;
+    }
+
+    /**
+     * Trim optional white-space characters from the specified value,
+     * according to <a href="https://tools.ietf.org/html/rfc7230#section-7">RFC-7230</a>.
+     *
+     * @param value the value to trim
+     * @return {@link CharSequence} the trimmed value if necessary, or the value unchanged
+     */
+    public static CharSequence trimOws(CharSequence value) {
+        final int length = value.length();
+        if (length == 0) {
+            return value;
+        }
+        int start = indexOfFirstNonOwsChar(value, length);
+        int end = indexOfLastNonOwsChar(value, start, length);
+        return start == 0 && end == length - 1 ? value : value.subSequence(start, end + 1);
+    }
+
+    /**
+     * @return {@code length} if no OWS is found.
+     */
+    private static int indexOfFirstNonOwsChar(CharSequence value, int length) {
+        int i = 0;
+        while (i < length && isOws(value.charAt(i))) {
+            i++;
+        }
+        return i;
+    }
+
+    /**
+     * @return {@code start} if no OWS is found.
+     */
+    private static int indexOfLastNonOwsChar(CharSequence value, int start, int length) {
+        int i = length - 1;
+        while (i > start && isOws(value.charAt(i))) {
+            i--;
+        }
+        return i;
+    }
+
+    private static boolean isOws(char c) {
+        return c == SPACE || c == TAB;
     }
 
     /**
@@ -523,5 +622,4 @@ public final class StringUtil {
         }
         return true;
     }
-
 }

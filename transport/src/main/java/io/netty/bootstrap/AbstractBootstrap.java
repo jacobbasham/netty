@@ -141,21 +141,21 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     /**
-     * @see {@link #localAddress(SocketAddress)}
+     * @see #localAddress(SocketAddress)
      */
     public B localAddress(int inetPort) {
         return localAddress(new InetSocketAddress(inetPort));
     }
 
     /**
-     * @see {@link #localAddress(SocketAddress)}
+     * @see #localAddress(SocketAddress)
      */
     public B localAddress(String inetHost, int inetPort) {
         return localAddress(SocketUtils.socketAddress(inetHost, inetPort));
     }
 
     /**
-     * @see {@link #localAddress(SocketAddress)}
+     * @see #localAddress(SocketAddress)
      */
     public B localAddress(InetAddress inetHost, int inetPort) {
         return localAddress(new InetSocketAddress(inetHost, inetPort));
@@ -461,7 +461,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             }
         } catch (Throwable t) {
             logger.warn(
-                    "Failed to set channel option '{}' with value '{}' for channel '{}'", option, channel, channel, t);
+                    "Failed to set channel option '{}' with value '{}' for channel '{}'", option, value, channel, t);
         }
     }
 
