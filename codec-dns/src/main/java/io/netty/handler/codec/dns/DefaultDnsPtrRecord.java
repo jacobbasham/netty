@@ -23,7 +23,7 @@ import io.netty.util.internal.UnstableApi;
 @UnstableApi
 public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrRecord {
 
-    private final String hostname;
+    private final CharSequence hostname;
 
     /**
      * Creates a new PTR record.
@@ -42,13 +42,13 @@ public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrReco
      * @param hostname the hostname this PTR record resolves to.
      */
     public DefaultDnsPtrRecord(
-            String name, int dnsClass, long timeToLive, String hostname) {
+            String name, DnsClass dnsClass, long timeToLive, String hostname) {
         super(name, DnsRecordType.PTR, dnsClass, timeToLive);
         this.hostname = checkNotNull(hostname, "hostname");
     }
 
     @Override
-    public String hostname() {
+    public CharSequence hostname() {
         return hostname;
     }
 
@@ -56,7 +56,7 @@ public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrReco
     public String toString() {
         final StringBuilder buf = new StringBuilder(64).append(StringUtil.simpleClassName(this)).append('(');
         final DnsRecordType type = type();
-        buf.append(name().isEmpty()? "<root>" : name())
+        buf.append(name().length() == 0 ? "<root>" : name())
            .append(' ')
            .append(timeToLive())
            .append(' ');

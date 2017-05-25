@@ -17,28 +17,34 @@ package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import static io.netty.handler.codec.dns.DefaultDnsRecordEncoderTest.assertCharsEqual;
+import static io.netty.handler.codec.dns.NameCodec.Feature.COMPRESSION;
+import static io.netty.handler.codec.dns.NameCodec.Feature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.NameCodec.Feature.WRITE_TRAILING_DOT;
+import io.netty.util.internal.StringUtil;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class DefaultDnsRecordDecoderTest {
 
     @Test
-    public void testDecodeName() {
+    public void testDecodeName() throws Exception {
         testDecodeName("netty.io.", Unpooled.wrappedBuffer(new byte[] {
                 5, 'n', 'e', 't', 't', 'y', 2, 'i', 'o', 0
         }));
     }
 
     @Test
-    public void testDecodeNameWithoutTerminator() {
+    public void testDecodeNameWithoutTerminator() throws Exception {
         testDecodeName("netty.io.", Unpooled.wrappedBuffer(new byte[] {
                 5, 'n', 'e', 't', 't', 'y', 2, 'i', 'o'
         }));
     }
 
     @Test
-    public void testDecodeNameWithExtraTerminator() {
+    public void testDecodeNameWithExtraTerminator() throws Exception {
         // Should not be decoded as 'netty.io..'
         testDecodeName("netty.io.", Unpooled.wrappedBuffer(new byte[] {
                 5, 'n', 'e', 't', 't', 'y', 2, 'i', 'o', 0, 0
@@ -46,24 +52,25 @@ public class DefaultDnsRecordDecoderTest {
     }
 
     @Test
-    public void testDecodeEmptyName() {
+    public void testDecodeEmptyName() throws Exception {
         testDecodeName(".", Unpooled.buffer().writeByte(0));
     }
 
     @Test
-    public void testDecodeEmptyNameFromEmptyBuffer() {
+    public void testDecodeEmptyNameFromEmptyBuffer() throws Exception {
         testDecodeName(".", Unpooled.EMPTY_BUFFER);
     }
 
     @Test
-    public void testDecodeEmptyNameFromExtraZeroes() {
+    public void testDecodeEmptyNameFromExtraZeroes() throws Exception {
         testDecodeName(".", Unpooled.wrappedBuffer(new byte[] { 0, 0 }));
     }
 
-    private static void testDecodeName(String expected, ByteBuf buffer) {
+    private static void testDecodeName(String expected, ByteBuf buffer) throws DnsDecoderException {
         try {
-            DefaultDnsRecordDecoder decoder = new DefaultDnsRecordDecoder();
-            assertEquals(expected, decoder.decodeName0(buffer));
+            NameCodec codec = NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT);
+            CharSequence decoded = codec.readName(buffer);
+            assertTrue(decoded + " expected " + expected, StringUtil.charSequencesEqual(expected, decoded, false));
         } finally {
             buffer.release();
         }
@@ -77,9 +84,10 @@ public class DefaultDnsRecordDecoderTest {
         int writerIndex = buffer.writerIndex();
         try {
             DnsPtrRecord record = (DnsPtrRecord) decoder.decodeRecord(
-                    "netty.io", DnsRecordType.PTR, DnsRecord.CLASS_IN, 60, buffer, 0, 1);
-            assertEquals("netty.io.", record.name());
-            assertEquals(DnsRecord.CLASS_IN, record.dnsClass());
+                    "netty.io.", DnsRecordType.PTR, DnsClass.IN.intValue(), 60, buffer, 0, 1,
+                    NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+            assertCharsEqual("netty.io.", record.name());
+            assertEquals(DnsClass.IN, record.dnsClass());
             assertEquals(60, record.timeToLive());
             assertEquals(DnsRecordType.PTR, record.type());
             assertEquals(readerIndex, buffer.readerIndex());
@@ -104,45 +112,57 @@ public class DefaultDnsRecordDecoderTest {
         ByteBuf buffer = Unpooled.wrappedBuffer(rfcExample);
         try {
             // First lets test that our utility funciton can correctly handle index references and decompression.
-            String plainName = DefaultDnsRecordDecoder.decodeName(buffer.duplicate());
-            assertEquals("F.ISI.ARPA.", plainName);
-            String uncompressedPlainName = DefaultDnsRecordDecoder.decodeName(buffer.duplicate().setIndex(16, 20));
-            assertEquals(plainName, uncompressedPlainName);
-            String uncompressedIndexedName = DefaultDnsRecordDecoder.decodeName(buffer.duplicate().setIndex(12, 20));
-            assertEquals("FOO." + plainName, uncompressedIndexedName);
+            CharSequence plainName = NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT)
+                    .readName(buffer.duplicate());
+            assertCharsEqual("F.ISI.ARPA.", plainName);
+            CharSequence uncompressedPlainName = NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT)
+                    .readName(buffer.duplicate().setIndex(16, 20));
+            assertCharsEqual(plainName, uncompressedPlainName);
+            CharSequence uncompressedIndexedName = NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT)
+                    .readName(buffer.duplicate().setIndex(12, 20));
+            assertCharsEqual("FOO." + plainName, uncompressedIndexedName);
 
             // Now lets make sure out object parsing produces the same results for non PTR type (just use CNAME).
             rawPlainRecord = (DefaultDnsRawRecord) decoder.decodeRecord(
-                    plainName, DnsRecordType.CNAME, DnsRecord.CLASS_IN, 60, buffer, 0, 11);
-            assertEquals(plainName, rawPlainRecord.name());
-            assertEquals(plainName, DefaultDnsRecordDecoder.decodeName(rawPlainRecord.content()));
+                    plainName, DnsRecordType.CNAME, DnsClass.IN.intValue(), 60, buffer, 0, 11,
+                    NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+            assertCharsEqual(plainName, rawPlainRecord.name());
+            assertCharsEqual(plainName, NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT)
+                    .readName(rawPlainRecord.content()));
 
             rawUncompressedRecord = (DefaultDnsRawRecord) decoder.decodeRecord(
-                    uncompressedPlainName, DnsRecordType.CNAME, DnsRecord.CLASS_IN, 60, buffer, 16, 4);
-            assertEquals(uncompressedPlainName, rawUncompressedRecord.name());
-            assertEquals(uncompressedPlainName, DefaultDnsRecordDecoder.decodeName(rawUncompressedRecord.content()));
+                    uncompressedPlainName, DnsRecordType.CNAME, DnsClass.CLASS_IN, 60, buffer, 16, 4,
+                    NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+            assertCharsEqual(uncompressedPlainName, rawUncompressedRecord.name());
+            assertCharsEqual(uncompressedPlainName, NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT)
+                    .readName(rawUncompressedRecord.content()));
 
             rawUncompressedIndexedRecord = (DefaultDnsRawRecord) decoder.decodeRecord(
-                    uncompressedIndexedName, DnsRecordType.CNAME, DnsRecord.CLASS_IN, 60, buffer, 12, 8);
-            assertEquals(uncompressedIndexedName, rawUncompressedIndexedRecord.name());
-            assertEquals(uncompressedIndexedName,
-                         DefaultDnsRecordDecoder.decodeName(rawUncompressedIndexedRecord.content()));
+                    uncompressedIndexedName, DnsRecordType.CNAME, DnsClass.CLASS_IN, 60, buffer, 12, 8,
+                    NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+            assertCharsEqual(uncompressedIndexedName, rawUncompressedIndexedRecord.name());
+            assertCharsEqual(uncompressedIndexedName,
+                         NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT)
+                                 .readName(rawUncompressedIndexedRecord.content()));
 
             // Now lets make sure out object parsing produces the same results for PTR type.
             DnsPtrRecord ptrRecord = (DnsPtrRecord) decoder.decodeRecord(
-                    plainName, DnsRecordType.PTR, DnsRecord.CLASS_IN, 60, buffer, 0, 11);
-            assertEquals(plainName, ptrRecord.name());
-            assertEquals(plainName, ptrRecord.hostname());
+                    plainName, DnsRecordType.PTR, DnsClass.CLASS_IN, 60, buffer, 0, 11,
+                    NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+            assertCharsEqual(plainName, ptrRecord.name());
+            assertCharsEqual(plainName, ptrRecord.hostname());
 
             ptrRecord = (DnsPtrRecord) decoder.decodeRecord(
-                    uncompressedPlainName, DnsRecordType.PTR, DnsRecord.CLASS_IN, 60, buffer, 16, 4);
-            assertEquals(uncompressedPlainName, ptrRecord.name());
-            assertEquals(uncompressedPlainName, ptrRecord.hostname());
+                    uncompressedPlainName, DnsRecordType.PTR, DnsClass.CLASS_IN, 60, buffer, 16, 4,
+                    NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+            assertCharsEqual(uncompressedPlainName, ptrRecord.name());
+            assertCharsEqual(uncompressedPlainName, ptrRecord.hostname());
 
             ptrRecord = (DnsPtrRecord) decoder.decodeRecord(
-                    uncompressedIndexedName, DnsRecordType.PTR, DnsRecord.CLASS_IN, 60, buffer, 12, 8);
-            assertEquals(uncompressedIndexedName, ptrRecord.name());
-            assertEquals(uncompressedIndexedName, ptrRecord.hostname());
+                    uncompressedIndexedName, DnsRecordType.PTR, DnsClass.CLASS_IN, 60, buffer, 12, 8,
+                    NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+            assertCharsEqual(uncompressedIndexedName, ptrRecord.name());
+            assertCharsEqual(uncompressedIndexedName, ptrRecord.hostname());
         } finally {
             if (rawPlainRecord != null) {
                 rawPlainRecord.release();

@@ -24,9 +24,21 @@ import java.util.Map;
 /**
  * Name writer which uses DNS message compression pointers.
  */
-final class CompressingNameWriter extends NameCodec {
+final class CompressingNameCodec extends NameCodec {
 
     private final Map<CharSequence, Integer> positions = new HashMap<CharSequence, Integer>();
+    private final boolean readTrailingDot;
+    private final boolean writeTrailingDot;
+
+    CompressingNameCodec(boolean readTrailingDot, boolean writeTrailingDot) {
+        this.readTrailingDot = readTrailingDot;
+        this.writeTrailingDot = writeTrailingDot;
+    }
+
+    @Override
+    public CharSequence readName(ByteBuf in) throws DnsDecoderException {
+        return defaultReadName(in, readTrailingDot);
+    }
 
     @Override
     public void close() {
@@ -37,8 +49,15 @@ final class CompressingNameWriter extends NameCodec {
     public void writeName(CharSequence name, ByteBuf buf) throws UnmappableCharacterException,
             InvalidDomainNameException {
         checkName(name);
+        while (name.length() > 1 && name.charAt(name.length() - 1) == '.') {
+            name = name.subSequence(0, name.length() - 1);
+        }
         int max = name.length();
         int lastStart = 0;
+        if (name.length() == 0 || (name.length() == 1 && name.charAt(0) == '.')) {
+            buf.writeByte(0);
+            return;
+        }
         for (int i = 0; i < max; i++) {
             char c;
             if (i == max - 1 || (c = name.charAt(i)) == '.' || c == '@') {
@@ -51,18 +70,32 @@ final class CompressingNameWriter extends NameCodec {
                             + label + "' has " + label.length());
                 }
                 // A pointer may start at any *label* and continue to the end of the name
-                CharSequence remainder = name.subSequence(lastStart, max);
+                CharSequence remainder = lastStart == 0 ? name : name.subSequence(lastStart, max);
                 Integer pos = positions.get(remainder);
                 if (pos == null) {
                     positions.put(remainder, buf.writerIndex());
                     lastStart = i + 1;
-                    if (length == 0) {
-                        continue;
+                    if (length != 0) {
+                        buf.writeByte(length);
+                        ByteBufUtil.writeAscii(buf, label);
                     }
-                    buf.writeByte(length);
-                    ByteBufUtil.writeAscii(buf, label);
                     if (i == max - 1) {
-                        buf.writeByte(0);
+                        // ----
+                        // I am not sure this is spec-compliance so much as emulating the
+                        // behavior of String.split(), but it makes the tests pass
+                        int old = buf.readerIndex();
+                        buf.readerIndex(buf.writerIndex() - 1);
+                        if (buf.readByte() == '.') {
+                            buf.readerIndex(old); // do this here or an exception will be thrown
+                                                   // when readerIndex exceeds writerIndex
+                            buf.writerIndex(buf.writerIndex() - 1);
+                        } else {
+                            buf.readerIndex(old);
+                        }
+                        // ----
+                        if (writeTrailingDot) {
+                            buf.writeByte(0);
+                        }
                     }
                 } else {
                     int val = pos | 0xc000;

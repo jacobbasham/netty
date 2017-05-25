@@ -63,7 +63,7 @@ public class DnsServerHandler extends SimpleChannelInboundHandler<DatagramDnsQue
     }
 
     @Override
-    public void messageReceived(final ChannelHandlerContext ctx, DatagramDnsQuery query) throws Exception {
+    protected void channelRead0(ChannelHandlerContext ctx, DatagramDnsQuery query) throws Exception {
         try {
             answerer.respond(query, ctx, new DnsResponderImpl(ctx, this));
         } catch (Exception ex) {

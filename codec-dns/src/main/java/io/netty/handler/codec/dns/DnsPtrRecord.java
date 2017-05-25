@@ -23,6 +23,6 @@ public interface DnsPtrRecord extends DnsRecord {
     /**
      * Returns the hostname this PTR record resolves to.
      */
-    String hostname();
+    CharSequence hostname();
 
 }

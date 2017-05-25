@@ -16,12 +16,17 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.MessageToMessageEncoder;
-import io.netty.util.internal.ObjectUtil;
+import static io.netty.handler.codec.dns.NameCodec.Feature.COMPRESSION;
+import static io.netty.handler.codec.dns.NameCodec.Feature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.NameCodec.Feature.WRITE_TRAILING_DOT;
+import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import java.util.List;
 import io.netty.util.internal.UnstableApi;
+
 /**
  * Encodes DNS responses.
  */
@@ -30,40 +35,33 @@ import io.netty.util.internal.UnstableApi;
 public class DatagramDnsResponseEncoder
         extends MessageToMessageEncoder<DatagramDnsResponse> {
 
-    private static final int FLAGS_QR = 15;
-    private static final int FLAGS_OPCODE = 11;
-    private static final int FLAGS_AA = 10;
-    private static final int FLAGS_TC = 9;
-    private static final int FLAGS_RD = 8;
-    private static final int FLAGS_RA = 7;
     private static final int FLAGS_Z = 4;
-    /**
-     * Message type is query.
-     */
-    public static final int TYPE_QUERY = 0;
-
-    /**
-     * Message type is response.
-     */
-    public static final int TYPE_RESPONSE = 1;
     private final int basePacketSize;
     private final DnsRecordEncoder encoder;
 
-    static final int DEFAULT_BASE_PACKET_SIZE = 80;
+    static final int DEFAULT_BASE_PACKET_SIZE = 64;
     static final int DEFAULT_MAX_PACKET_SIZE = 576;
     private final int minPacketSize;
+    private final NameCodec.Factory names;
 
     public DatagramDnsResponseEncoder() {
         this(DnsRecordEncoder.DEFAULT);
     }
 
-    public DatagramDnsResponseEncoder(DnsRecordEncoder encoder) {
-        this(DEFAULT_BASE_PACKET_SIZE, DEFAULT_MAX_PACKET_SIZE, encoder);
+    public DatagramDnsResponseEncoder(DnsRecordEncoder encoder, NameCodec.Feature... features) {
+        this(DEFAULT_BASE_PACKET_SIZE, DEFAULT_MAX_PACKET_SIZE, encoder, NameCodec.factory(features));
     }
 
-    public DatagramDnsResponseEncoder(int minPacketSize, int maxPacketSize, DnsRecordEncoder encoder) {
+    public DatagramDnsResponseEncoder(DnsRecordEncoder encoder) {
+        this(DEFAULT_BASE_PACKET_SIZE, DEFAULT_MAX_PACKET_SIZE, encoder,
+                NameCodec.factory(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT));
+    }
+
+    public DatagramDnsResponseEncoder(int minPacketSize, int maxPacketSize,
+            DnsRecordEncoder encoder, NameCodec.Factory names) {
         super(DatagramDnsResponse.class);
-        this.encoder = ObjectUtil.checkNotNull(encoder, "encoder");
+        this.encoder = checkNotNull(encoder, "encoder");
+        this.names = checkNotNull(names, "names");
         if (minPacketSize < 48) {
             throw new IllegalArgumentException("Packet base size too small");
         }
@@ -74,46 +72,31 @@ public class DatagramDnsResponseEncoder
         this.minPacketSize = minPacketSize;
     }
 
-    /**
-     * Flip the bit at position <code>index</code> on or off.
-     *
-     * @param value The value to change
-     * @param index The bit-index
-     * @param on Whether or not the bit should be a 1
-     * @return The updated value
-     */
-    private static int flip(int value, int index, boolean on) {
-        int i = 1 << index;
-        if (on) {
-            value |= i;
-        } else {
-            value &= i ^ 0xFFFF;
-        }
-        return value;
-    }
-
     @Override
     protected void encode(ChannelHandlerContext ctx, DatagramDnsResponse msg, List<Object> out) throws Exception {
         ByteBuf buf = ctx.alloc().buffer(minPacketSize, basePacketSize);
-        encode(msg, buf);
-
+        NameCodec nameCodec = names.getForWrite();
+        try {
+            encode(msg, buf, nameCodec);
+        } finally {
+            nameCodec.close();
+        }
         DatagramPacket packet = new DatagramPacket(buf, msg.sender(), msg.recipient());
         out.add(packet);
     }
 
     /**
-     * Encode a DnsResponse into a buffer.  Public so caches can be serialized to disk
-     * in wire-format.
+     * Encode a DnsResponse into a buffer. Public so caches can be serialized to
+     * disk in wire-format.
      *
      * @param into
      * @param msg
      * @throws Exception
      */
-    public void encode(DnsResponse msg, ByteBuf into) throws Exception {
+    public void encode(DnsResponse msg, ByteBuf into, NameCodec nameCodec) throws Exception {
         into.writeShort(msg.id());
         short flags = msg.flags().value();
         flags |= msg.code().intValue();
-        flags |= msg.opCode().byteValue() << FLAGS_OPCODE;
         flags |= msg.z() << FLAGS_Z;
 
         into.writeShort(flags);
@@ -128,17 +111,12 @@ public class DatagramDnsResponseEncoder
                 : new DnsSection[]{DnsSection.QUESTION, DnsSection.ANSWER, DnsSection.AUTHORITY,
                     DnsSection.ADDITIONAL};
 
-        NameCodec nameCodec = NameCodec.compressingNameWriter();
-        try {
-            for (DnsSection sect : sections) {
-                int max = msg.count(sect);
-                for (int i = 0; i < max; i++) {
-                    DnsRecord record = msg.recordAt(sect, i);
-                    encoder.encodeRecord(nameCodec, record, into);
-                }
+        for (DnsSection sect : sections) {
+            int max = msg.count(sect);
+            for (int i = 0; i < max; i++) {
+                DnsRecord record = msg.recordAt(sect, i);
+                encoder.encodeRecord(nameCodec, record, into);
             }
-        } finally {
-            nameCodec.close();
         }
     }
 }

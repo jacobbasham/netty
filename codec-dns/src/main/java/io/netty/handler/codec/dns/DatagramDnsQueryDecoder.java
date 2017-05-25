@@ -16,6 +16,7 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.CorruptedFrameException;
@@ -70,9 +71,9 @@ public class DatagramDnsQueryDecoder extends MessageToMessageDecoder<DatagramPac
             final int additionalRecordCount = buf.readUnsignedShort();
 
             decodeQuestions(query, buf, questionCount, nameCodec);
-            decodeRecords(query, DnsSection.ANSWER, buf, answerCount);
-            decodeRecords(query, DnsSection.AUTHORITY, buf, authorityRecordCount);
-            decodeRecords(query, DnsSection.ADDITIONAL, buf, additionalRecordCount);
+            decodeRecords(query, DnsSection.ANSWER, buf, answerCount, nameCodec);
+            decodeRecords(query, DnsSection.AUTHORITY, buf, authorityRecordCount, nameCodec);
+            decodeRecords(query, DnsSection.ADDITIONAL, buf, additionalRecordCount, nameCodec);
 
             out.add(query);
             success = true;
@@ -105,6 +106,14 @@ public class DatagramDnsQueryDecoder extends MessageToMessageDecoder<DatagramPac
         for (int i = 0; i < questionCount; i++) {
             DnsQuestion question = recordDecoder.decodeQuestion(buf, nameCodec);
             query.addRecord(DnsSection.QUESTION, question);
+        }
+    }
+
+    private void decodeRecords(DatagramDnsQuery query, DnsSection section, ByteBuf buf, int count,
+            NameCodec nameCodec) throws Exception {
+        for (int i = 0; i < count; i++) {
+            DnsRecord record = recordDecoder.decodeRecord(buf, nameCodec);
+            query.addRecord(section, record);
         }
     }
 }

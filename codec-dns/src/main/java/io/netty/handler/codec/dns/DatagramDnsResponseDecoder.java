@@ -21,6 +21,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.MessageToMessageDecoder;
+import io.netty.handler.codec.dns.DnsMessageFlags.FlagSet;
+import static io.netty.handler.codec.dns.DnsMessageFlags.IS_REPLY;
 import io.netty.util.internal.UnstableApi;
 
 import java.net.InetSocketAddress;

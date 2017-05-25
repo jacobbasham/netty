@@ -18,10 +18,15 @@ package io.netty.handler.codec.dns;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import static io.netty.handler.codec.dns.NameCodec.Feature.COMPRESSION;
+import static io.netty.handler.codec.dns.NameCodec.Feature.PUNYCODE;
+import static io.netty.handler.codec.dns.NameCodec.Feature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.NameCodec.Feature.WRITE_TRAILING_DOT;
 import io.netty.util.AsciiString;
 import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.FastThreadLocal;
-import io.netty.util.internal.StringUtil;
+import io.netty.util.internal.UnstableApi;
+import java.net.IDN;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.UnmappableCharacterException;
 
@@ -40,16 +45,121 @@ import java.nio.charset.UnmappableCharacterException;
  * it can be used in a try-with-resources structure.
  * </p>
  */
+@UnstableApi
 public abstract class NameCodec implements AutoCloseable {
 
-    private static NameCodec DEFAULT = new DefaultNameCodec();
+    static final AsciiString ROOT = new AsciiString(".");
+    private static NameCodec DEFAULT = new DefaultNameCodec(false, true);
+    private static NameCodec DEFAULT_TRAILING_DOT = new DefaultNameCodec(true, true);
+
+    public static enum Feature {
+        /**
+         * Use DNS name pointer compression. Unless you are debugging the wire
+         * format, you almost always want this as it reduces packet size.
+         */
+        COMPRESSION,
+        /**
+         * Translate punycode into unicode. This forces the use of
+         * {@link java.lang.String} instead of
+         * {@link io.netty.util.AsciiString}, doubling the memory footprint of
+         * names. If you are writing something like a caching server, where you
+         * are not displaying the domain names directly, just forwarding them,
+         * leave this unset and - clients will do the encoding and decoding if
+         * needed.
+         */
+        PUNYCODE,
+        /**
+         * Write the trailing 0 on names in DNS packets. This is almost always
+         * wanted, as according to the spec, this makes the final label (such as
+         * "com") a child of the
+         * <i>root domain</i> of the internet, named "".
+         */
+        WRITE_TRAILING_DOT,
+        /**
+         * Read and append the trailing dot when reading names. This is also
+         * part of the DNS spec (assuming the incoming name is indeed fully
+         * qualified), but if you are displaying names to a user unfamiliar with
+         * the spec, may look like a bug.
+         */
+        READ_TRAILING_DOT
+    }
+
+    public static NameCodec get(Feature... features) {
+        boolean compression = false;
+        boolean punycode = false;
+        boolean readTrailingDot = false;
+        boolean writeTrailingDot = false;
+        for (Feature f : features) {
+            if (f == PUNYCODE) {
+                punycode = true;
+            }
+            if (f == COMPRESSION) {
+                compression = true;
+            }
+            if (f == READ_TRAILING_DOT) {
+                readTrailingDot = true;
+            }
+            if (f == WRITE_TRAILING_DOT) {
+                writeTrailingDot = true;
+            }
+        }
+        NameCodec result = compression ? new CompressingNameCodec(readTrailingDot,
+                writeTrailingDot) : readTrailingDot ? DEFAULT_TRAILING_DOT : DEFAULT;
+        if (punycode) {
+            result = new IdnNameCodec(result);
+        }
+        return result;
+    }
+
+    public static Factory factory(Feature... features) {
+        boolean compression = false;
+        boolean punycode = false;
+        for (Feature f : features) {
+            if (f == PUNYCODE) {
+                punycode = true;
+            }
+            if (f == COMPRESSION) {
+                compression = true;
+            }
+        }
+        Factory result = compression ? compressingFactory() : standardFactory();
+        if (punycode) {
+            result = new IdnFactory(result);
+        }
+        return result;
+    }
+
+    private static class IdnFactory implements Factory {
+
+        private final Factory delegate;
+        private final NameCodec forReads;
+
+        public IdnFactory(Factory delegate) {
+            this.delegate = delegate;
+            forReads = new IdnNameCodec(delegate.getForRead());
+        }
+
+        @Override
+        public NameCodec getForRead() {
+            return forReads;
+        }
+
+        @Override
+        public NameCodec getForWrite() {
+            return new IdnNameCodec(delegate.getForWrite());
+        }
+    }
+
+    public NameCodec toPunycodeNameCodec() {
+        return this instanceof IdnNameCodec ? this : new IdnNameCodec(this);
+    }
 
     /**
      * Write a name into the passed buffer.
      *
      * @param name The name
      * @param into The buffer
-     * @throws Exception
+     * @throws UnmappableCharacterException, InvalidDomainNameException
      */
     public abstract void writeName(CharSequence name, ByteBuf into) throws UnmappableCharacterException,
             InvalidDomainNameException;
@@ -59,7 +169,7 @@ public abstract class NameCodec implements AutoCloseable {
      *
      * @return A non-compressing NameCodec
      */
-    public static NameCodec standardNameWriter() {
+    public static NameCodec basicNameCodec() {
         return DEFAULT;
     }
 
@@ -70,8 +180,8 @@ public abstract class NameCodec implements AutoCloseable {
      *
      * @return A compressing NameCodec
      */
-    public static NameCodec compressingNameWriter() {
-        return new CompressingNameWriter();
+    public static NameCodec compressingNameCodec() {
+        return new CompressingNameCodec(false, true);
     }
 
     /**
@@ -111,7 +221,7 @@ public abstract class NameCodec implements AutoCloseable {
      * @return A factory
      */
     public static Factory compressingFactory() {
-        return new CompressingFactory();
+        return new CompressingFactory(false, true);
     }
 
     /**
@@ -174,9 +284,16 @@ public abstract class NameCodec implements AutoCloseable {
     private static final class CompressingFactory implements Factory {
 
         private final FastThreadLocal<NameCodec> writer = new FastThreadLocal<NameCodec>();
-        // StandardNameWriter and CompressingNameWriter delegate to the same defaultRead()
+        // StandardNameWriter and CompressingNameCodec delegate to the same defaultRead()
         // method and have no state when reading
-        private final NameCodec readInstance = new ReadOrWriteWrapper(DEFAULT, false);
+        private final NameCodec readInstance;
+        private final boolean writeTrailingDot;
+
+        CompressingFactory(boolean readTrailingDot, boolean writeTrailingDot) {
+            readInstance = new ReadOrWriteWrapper(readTrailingDot ? DEFAULT_TRAILING_DOT
+                    : DEFAULT, false);
+            this.writeTrailingDot = writeTrailingDot;
+        }
 
         public NameCodec getForRead() {
             return readInstance;
@@ -186,8 +303,10 @@ public abstract class NameCodec implements AutoCloseable {
         public NameCodec getForWrite() {
             NameCodec result;
             if (!writer.isSet()) {
-                result = compressingNameWriter();
-                writer.set(new ReadOrWriteWrapper(result, true));
+                result = new ReadOrWriteWrapper(new CompressingNameCodec(
+                        readInstance == DEFAULT_TRAILING_DOT, writeTrailingDot),
+                        true);
+                writer.set(result);
             } else {
                 result = writer.get();
             }
@@ -211,7 +330,7 @@ public abstract class NameCodec implements AutoCloseable {
      * @throws DnsDecoderException if the data is invalid
      */
     public CharSequence readName(ByteBuf in) throws DnsDecoderException {
-        return defaultReadName(in);
+        return defaultReadName(in, false);
     }
 
     /**
@@ -228,7 +347,18 @@ public abstract class NameCodec implements AutoCloseable {
      * @return A name
      * @throws DnsDecoderException
      */
-    protected static CharSequence defaultReadName(ByteBuf buf) throws DnsDecoderException {
+    protected static CharSequence defaultReadName(ByteBuf buf, boolean trailingDot) throws DnsDecoderException {
+        if (buf.readableBytes() == 0) {
+            return ROOT;
+        }
+        if (buf.readableBytes() == 1) {
+            byte r = buf.readByte();
+            if (r == 0) {
+                return ROOT;
+            }
+            throw new DnsDecoderException(DnsResponseCode.FORMERR, "The only valid value of a 1-byte name "
+                    + "buffer is 0 but found " + r + " (" + (char) r + ")");
+        }
         int position = -1;
         int checked = 0;
         int length = buf.writerIndex();
@@ -237,20 +367,39 @@ public abstract class NameCodec implements AutoCloseable {
         ByteBuf name = Unpooled.buffer(64, 253);
         try {
             for (int len = buf.readUnsignedByte(); buf.isReadable() && len != 0; len = buf.readUnsignedByte()) {
+                if (len == 0 && name.readableBytes() == 0) {
+                    return ROOT;
+                }
                 boolean pointer = (len & 0xc0) == 0xc0;
                 if (pointer) {
                     if (position == -1) {
                         position = buf.readerIndex() + 1;
                     }
-                    buf.readerIndex((len & 0x3f) << 8 | buf.readUnsignedByte());
+                    if (!buf.isReadable()) {
+                        throw new DnsDecoderException(DnsResponseCode.FORMERR, "truncated pointer in a name at "
+                                + buf.readerIndex() + " after '" + new AsciiString(name.array(), 0,
+                                name.readableBytes(), false) + "'");
+                    }
+                    final int next = (len & 0x3f) << 8 | buf.readUnsignedByte();
+                    if (next >= length) {
+                        throw new DnsDecoderException(DnsResponseCode.FORMERR, "name has an "
+                                + "out-of-range pointer at "
+                                + buf.readerIndex() + " after '" + new AsciiString(name.array(), 0,
+                                name.readableBytes(), false) + "'");
+                    }
+                    buf.readerIndex(next);
                     // check for loops
                     checked += 2;
                     if (checked >= length) {
-                        throw new DnsDecoderException(DnsResponseCode.FORMERR,
-                                "Name contains a loop:" + new AsciiString(name.array(), 0,
-                                        name.readableBytes(), false));
+                        throw new DnsDecoderException(DnsResponseCode.FORMERR, "Name contains a loop at "
+                                + buf.readerIndex() + " after '" + new AsciiString(name.array(), 0,
+                                name.readableBytes(), false) + "'");
                     }
-                } else {
+                } else if (len != 0) {
+                    if (!buf.isReadable(len)) {
+                        throw new DnsDecoderException(DnsResponseCode.FORMERR, "truncated label in a name after "
+                                + new AsciiString(name.array()));
+                    }
                     if (len > 63) {
                         throw new DnsDecoderException(DnsResponseCode.BADNAME, "Label length " + len
                                 + " but max DNS label length is 63 bytes at " + buf.readerIndex());
@@ -261,15 +410,27 @@ public abstract class NameCodec implements AutoCloseable {
                     name.writeBytes(buf, len);
                     first = false;
                 }
+                if (buf.readableBytes() == 0) {
+                    break;
+                }
             }
         } catch (IndexOutOfBoundsException ex) {
-            throw new DnsDecoderException(DnsResponseCode.BADNAME, "Name is longer than 253 characters", ex);
+            throw new DnsDecoderException(DnsResponseCode.BADNAME, "Name is longer than 253 characters at "
+                    + buf.readerIndex() + " decoded: "
+                    + new AsciiString(name.array(), 0, name.readableBytes(), false), ex);
         }
         if (position != -1) {
             buf.readerIndex(position);
         }
         if (name.writerIndex() == 0) {
-            return StringUtil.EMPTY_STRING;
+            return ROOT;
+        }
+        if (trailingDot) {
+            name.readerIndex(name.writerIndex() - 1);
+            if (name.readByte() != '.') {
+                name.writeByte('.');
+            }
+            name.readerIndex(0);
         }
         return new AsciiString(name.array(), 0, name.readableBytes(), false);
     }
@@ -312,6 +473,19 @@ public abstract class NameCodec implements AutoCloseable {
 
     static final class DefaultNameCodec extends NameCodec { //package private for tests
 
+        private final boolean readTrailingDot;
+        private final boolean writeTrailingDot;
+
+        public DefaultNameCodec(boolean readTrailingDot, boolean writeTrailingDot) {
+            this.readTrailingDot = readTrailingDot;
+            this.writeTrailingDot = writeTrailingDot;
+        }
+
+        @Override
+        public CharSequence readName(ByteBuf in) throws DnsDecoderException {
+            return defaultReadName(in, readTrailingDot);
+        }
+
         @Override
         public void writeName(CharSequence name, ByteBuf buf) throws UnmappableCharacterException,
                 InvalidDomainNameException {
@@ -323,6 +497,10 @@ public abstract class NameCodec implements AutoCloseable {
         void writeName0(CharSequence name, ByteBuf buf) throws UnmappableCharacterException,
                 InvalidDomainNameException {
             int max = name.length();
+            if (name.length() == 0 || (name.length() == 1 && name.charAt(0) == '.')) {
+                buf.writeByte(0);
+                return;
+            }
             int lastStart = 0;
             char c = 0;
             int length;
@@ -340,10 +518,26 @@ public abstract class NameCodec implements AutoCloseable {
                     if (length == 0) {
                         continue;
                     }
-                    buf.writeByte(length);
-                    ByteBufUtil.writeAscii(buf, label);
+                    if (length != 0) {
+                        buf.writeByte(length);
+                        ByteBufUtil.writeAscii(buf, label);
+                    }
                     if (i == max - 1) {
-                        buf.writeByte(0);
+                        // ----
+                        // I am not sure this is spec-compliance so much as emulating the
+                        // behavior of String.split(), but it makes the tests pass
+                        int old = buf.readerIndex();
+                        buf.readerIndex(buf.writerIndex() - 1);
+                        if (buf.readByte() == '.') {
+                            buf.readerIndex(old);
+                            buf.writerIndex(buf.writerIndex() - 1);
+                        } else {
+                            buf.readerIndex(old);
+                        }
+                        // ----
+                        if (writeTrailingDot) {
+                            buf.writeByte(0);
+                        }
                     }
                 }
             }
@@ -362,6 +556,26 @@ public abstract class NameCodec implements AutoCloseable {
         @Override
         public String getMessage() {
             return "Name contains non-ascii character - convert it to punycode first: '" + name + "'";
+        }
+    }
+
+    private static final class IdnNameCodec extends NameCodec {
+
+        private final NameCodec delegate;
+
+        public IdnNameCodec(NameCodec delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public CharSequence readName(ByteBuf in) throws DnsDecoderException {
+            return IDN.toUnicode(delegate.readName(in).toString());
+        }
+
+        @Override
+        public void writeName(CharSequence name, ByteBuf into)
+                throws UnmappableCharacterException, InvalidDomainNameException {
+            delegate.writeName(IDN.toASCII(name.toString()), into);
         }
     }
 }

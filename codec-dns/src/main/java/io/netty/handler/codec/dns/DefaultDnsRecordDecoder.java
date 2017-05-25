@@ -16,31 +16,14 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
-<<<<<<< HEAD
-import io.netty.handler.codec.CorruptedFrameException;
-import io.netty.util.CharsetUtil;
-import io.netty.util.internal.UnstableApi;
-=======
->>>>>>> cd5b63649... Basic DNS server support
 
 /**
  * The default {@link DnsRecordDecoder} implementation.
  *
  * @see DefaultDnsRecordEncoder
  */
-@UnstableApi
 public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
 
-<<<<<<< HEAD
-    static final String ROOT = ".";
-
-    /**
-     * Creates a new instance.
-     */
-    protected DefaultDnsRecordDecoder() { }
-
-=======
->>>>>>> cd5b63649... Basic DNS server support
     @Override
     public final DnsQuestion decodeQuestion(ByteBuf in, NameCodec forReadingNames) throws Exception {
         CharSequence name = forReadingNames.readName(in);
@@ -97,108 +80,17 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
     protected DnsRecord decodeRecord(
             CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
             ByteBuf in, int offset, int length, NameCodec forReadingNames) throws Exception {
-
         // DNS message compression means that domain names may contain "pointers" to other positions in the packet
         // to build a full message. This means the indexes are meaningful and we need the ability to reference the
         // indexes un-obstructed, and thus we cannot use a slice here.
         // See https://www.ietf.org/rfc/rfc1035 [4.1.4. Message compression]
-        if (type == DnsRecordType.PTR) {
+        if (type == DnsRecordType.PTR) { // XXX deleteme
             return new DefaultDnsPtrRecord(
-                    name, dnsClass, timeToLive, decodeName0(in.duplicate().setIndex(offset, offset + length)));
+                    name.toString(), DnsClass.valueOf(dnsClass), timeToLive,
+                    forReadingNames.readName(in.duplicate().setIndex(offset, offset + length)).toString());
         }
         return new DefaultDnsRawRecord(
-<<<<<<< HEAD
-                name, type, dnsClass, timeToLive, in.retainedDuplicate().setIndex(offset, offset + length));
-    }
-
-    /**
-     * Retrieves a domain name given a buffer containing a DNS packet. If the
-     * name contains a pointer, the position of the buffer will be set to
-     * directly after the pointer's index after the name has been read.
-     *
-     * @param in the byte buffer containing the DNS packet
-     * @return the domain name for an entry
-     */
-    protected String decodeName0(ByteBuf in) {
-        return decodeName(in);
-    }
-
-    /**
-     * Retrieves a domain name given a buffer containing a DNS packet. If the
-     * name contains a pointer, the position of the buffer will be set to
-     * directly after the pointer's index after the name has been read.
-     *
-     * @param in the byte buffer containing the DNS packet
-     * @return the domain name for an entry
-     */
-    public static String decodeName(ByteBuf in) {
-        int position = -1;
-        int checked = 0;
-        final int end = in.writerIndex();
-        final int readable = in.readableBytes();
-
-        // Looking at the spec we should always have at least enough readable bytes to read a byte here but it seems
-        // some servers do not respect this for empty names. So just workaround this and return an empty name in this
-        // case.
-        //
-        // See:
-        // - https://github.com/netty/netty/issues/5014
-        // - https://www.ietf.org/rfc/rfc1035.txt , Section 3.1
-        if (readable == 0) {
-            return ROOT;
-        }
-
-        final StringBuilder name = new StringBuilder(readable << 1);
-        while (in.isReadable()) {
-            final int len = in.readUnsignedByte();
-            final boolean pointer = (len & 0xc0) == 0xc0;
-            if (pointer) {
-                if (position == -1) {
-                    position = in.readerIndex() + 1;
-                }
-
-                if (!in.isReadable()) {
-                    throw new CorruptedFrameException("truncated pointer in a name");
-                }
-
-                final int next = (len & 0x3f) << 8 | in.readUnsignedByte();
-                if (next >= end) {
-                    throw new CorruptedFrameException("name has an out-of-range pointer");
-                }
-                in.readerIndex(next);
-
-                // check for loops
-                checked += 2;
-                if (checked >= end) {
-                    throw new CorruptedFrameException("name contains a loop.");
-                }
-            } else if (len != 0) {
-                if (!in.isReadable(len)) {
-                    throw new CorruptedFrameException("truncated label in a name");
-                }
-                name.append(in.toString(in.readerIndex(), len, CharsetUtil.UTF_8)).append('.');
-                in.skipBytes(len);
-            } else { // len == 0
-                break;
-            }
-        }
-
-        if (position != -1) {
-            in.readerIndex(position);
-        }
-
-        if (name.length() == 0) {
-            return ROOT;
-        }
-
-        if (name.charAt(name.length() - 1) != '.') {
-            name.append('.');
-        }
-
-        return name.toString();
-=======
                 name, type, DnsClass.valueOf(dnsClass), timeToLive,
-                in.duplicate().setIndex(offset, offset + length).retain());
->>>>>>> cd5b63649... Basic DNS server support
+                in.retainedDuplicate().setIndex(offset, offset + length).retain());
     }
 }

@@ -16,16 +16,24 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.socket.InternetProtocolFamily;
+import static io.netty.handler.codec.dns.NameCodec.Feature.COMPRESSION;
+import static io.netty.handler.codec.dns.NameCodec.Feature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.NameCodec.Feature.WRITE_TRAILING_DOT;
+import io.netty.util.AsciiString;
 import io.netty.util.internal.SocketUtils;
 import io.netty.util.internal.StringUtil;
+import static io.netty.util.internal.StringUtil.charSequencesEqual;
 import io.netty.util.internal.ThreadLocalRandom;
 import org.junit.Test;
 
 import java.net.InetAddress;
+import org.junit.Assert;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class DefaultDnsRecordEncoderTest {
 
@@ -56,16 +64,37 @@ public class DefaultDnsRecordEncoderTest {
     }
 
     private static void testEncodeName(byte[] expected, String name) throws Exception {
-        DefaultDnsRecordEncoder encoder = new DefaultDnsRecordEncoder();
         ByteBuf out = Unpooled.buffer();
         ByteBuf expectedBuf = Unpooled.wrappedBuffer(expected);
         try {
-            encoder.encodeName(name, out);
-            assertEquals(expectedBuf, out);
+            NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT).writeName(name, out);
+            assertBuffersEqual(bufferComparison(expectedBuf, out, name), expectedBuf, out);
         } finally {
             out.release();
             expectedBuf.release();
         }
+    }
+
+    private static void assertBuffersEqual(CharSequence msg, ByteBuf expected, ByteBuf got) {
+        // Avoids comparing the capacity of th ebuffers, which may differ
+        byte[] expBytes = new byte[expected.readableBytes()];
+        byte[] gotBytes = new byte[got.readableBytes()];
+        expected.readBytes(expBytes);
+        got.readBytes(gotBytes);
+        Assert.assertArrayEquals(msg.toString(), expBytes, gotBytes);
+    }
+
+    private static String bufferComparison(ByteBuf a, ByteBuf b, String orig) {
+        StringBuilder sb = new StringBuilder("Expected for '").append(orig)
+                .append("' - '").append(new AsciiString(a.array(), 0,
+                a.readableBytes(), true)).append("' got '")
+                .append(new AsciiString(b.array(), 0, b.readableBytes(), true))
+                .append("'\nEXPECTED:\n");
+        ByteBufUtil.appendPrettyHexDump(sb, a, 0, a.readableBytes());
+        sb.append("\nGOT:\n");
+        ByteBufUtil.appendPrettyHexDump(sb, b, 0, b.readableBytes());
+        sb.append('\n');
+        return sb.toString();
     }
 
     @Test
@@ -83,6 +112,11 @@ public class DefaultDnsRecordEncoderTest {
         for (int i = 0; i <= addressBits; ++i) {
             testIp(address, i);
         }
+    }
+
+    static void assertCharsEqual(CharSequence expected, CharSequence got) {
+        String msg = "Expected '" + expected + "' but got '" + got + "'";
+        assertTrue(msg, charSequencesEqual(expected, got, false));
     }
 
     private static void testIp(InetAddress address, int prefix) throws Exception {
@@ -107,7 +141,7 @@ public class DefaultDnsRecordEncoderTest {
         try {
             DnsOptEcsRecord record = new DefaultDnsOptEcsRecord(
                     payloadSize, extendedRcode, version, prefix, address.getAddress());
-            encoder.encodeRecord(record, out);
+            encoder.encodeRecord(NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT), record, out);
 
             assertEquals(0, out.readByte()); // Name
             assertEquals(DnsRecordType.OPT.intValue(), out.readUnsignedShort()); // Opt

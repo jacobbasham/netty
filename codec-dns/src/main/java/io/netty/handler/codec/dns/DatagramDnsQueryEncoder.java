@@ -22,6 +22,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.util.internal.UnstableApi;
+import static io.netty.handler.codec.dns.DatagramDnsResponseEncoder.DEFAULT_BASE_PACKET_SIZE;
+import static io.netty.handler.codec.dns.DatagramDnsResponseEncoder.DEFAULT_MAX_PACKET_SIZE;
 
 import java.net.InetSocketAddress;
 import java.util.List;

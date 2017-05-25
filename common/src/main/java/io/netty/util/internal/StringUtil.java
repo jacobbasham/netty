@@ -15,6 +15,7 @@
  */
 package io.netty.util.internal;
 
+import io.netty.util.AsciiString;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;

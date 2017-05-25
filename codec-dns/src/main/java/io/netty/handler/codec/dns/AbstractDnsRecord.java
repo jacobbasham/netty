@@ -18,8 +18,6 @@ package io.netty.handler.codec.dns;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.UnstableApi;
 
-import java.net.IDN;
-
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import static io.netty.util.internal.StringUtil.charSequenceHashCode;
 import static io.netty.util.internal.StringUtil.charSequencesEqual;
@@ -70,7 +68,8 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         // See:
         //   - https://github.com/netty/netty/issues/4937
         //   - https://github.com/netty/netty/issues/4935
-        this.name = appendTrailingDot(IDN.toASCII(checkNotNull(name, "name")));
+//        this.name = appendTrailingDot(IDN.toASCII(checkNotNull(name, "name")));
+        this.name = name;
         this.type = checkNotNull(type, "type");
         this.dnsClass = dnsClass;
         this.timeToLive = timeToLive;
