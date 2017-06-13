@@ -19,6 +19,7 @@ import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.internal.UnstableApi;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -303,28 +304,32 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
      */
     public static final DnsRecordType DLV = new DnsRecordType(0x8001, "DLV");
 
-    private static final Map<String, DnsRecordType> BY_NAME = new HashMap<String, DnsRecordType>();
-    private static final IntObjectHashMap<DnsRecordType> BY_TYPE = new IntObjectHashMap<DnsRecordType>();
+    private static final Map<String, DnsRecordType> BY_NAME;
+    private static final IntObjectHashMap<DnsRecordType> BY_TYPE;
     private static final String EXPECTED;
 
     static {
         DnsRecordType[] all = {
-                A, NS, CNAME, SOA, PTR, MX, TXT, RP, AFSDB, SIG, KEY, AAAA, LOC, SRV, NAPTR, KX, CERT, DNAME, OPT, APL,
-                DS, SSHFP, IPSECKEY, RRSIG, NSEC, DNSKEY, DHCID, NSEC3, NSEC3PARAM, TLSA, HIP, SPF, TKEY, TSIG, IXFR,
-                AXFR, ANY, CAA, TA, DLV
+            A, NS, CNAME, SOA, PTR, MX, TXT, RP, AFSDB, SIG, KEY, AAAA, LOC, SRV, NAPTR, KX, CERT, DNAME, OPT, APL,
+            DS, SSHFP, IPSECKEY, RRSIG, NSEC, DNSKEY, DHCID, NSEC3, NSEC3PARAM, TLSA, HIP, SPF, TKEY, TSIG, IXFR,
+            AXFR, ANY, CAA, TA, DLV
         };
+
+        BY_NAME = new HashMap<String, DnsRecordType>(all.length);
+        BY_TYPE = new IntObjectHashMap<DnsRecordType>(all.length);
 
         final StringBuilder expected = new StringBuilder(512);
 
         expected.append(" (expected: ");
-        for (DnsRecordType type: all) {
+        for (DnsRecordType type : all) {
             BY_NAME.put(type.name(), type);
             BY_TYPE.put(type.intValue(), type);
 
-            expected.append(type.name())
-                    .append('(')
-                    .append(type.intValue())
-                    .append("), ");
+            expected.append(type.name()).append(',');
+//            expected.append(type.name())
+//                    .append('(')
+//                    .append(type.intValue())
+//                    .append("), ");
         }
 
         expected.setLength(expected.length() - 2);
@@ -341,9 +346,20 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
     }
 
     public static DnsRecordType valueOf(String name) {
+        if (name == null) {
+            throw new NullPointerException("name");
+        }
         DnsRecordType result = BY_NAME.get(name);
         if (result == null) {
-            throw new IllegalArgumentException("name: " + name + EXPECTED);
+            StringBuilder sb = new StringBuilder("name: ").append(name).append(" (expected one of ");
+            for (Iterator<Map.Entry<String, DnsRecordType>> it = BY_NAME.entrySet().iterator(); it.hasNext();) {
+                Map.Entry<String, DnsRecordType> e = it.next();
+                sb.append('"').append(e.getKey()).append('"');
+                if (it.hasNext()) {
+                    sb.append(',');
+                }
+            }
+            throw new IllegalArgumentException(sb.toString());
         }
         return result;
     }

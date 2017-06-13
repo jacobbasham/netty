@@ -83,7 +83,7 @@ public class DnsServerHandler extends SimpleChannelInboundHandler<DatagramDnsQue
     public static DnsResponse createErrorResponse(Exception ex, DatagramDnsQuery query) {
         DnsResponseCode code = ex instanceof DnsDecoderException ? ((DnsDecoderException) ex).code()
                 : DnsResponseCode.SERVFAIL;
-        DnsResponse resp = new DatagramDnsResponse(query.recipient(), query.sender(),
+        DnsResponse resp = new DatagramDnsResponse(query.sender(), query.recipient(),
                 query.id(), DnsOpCode.QUERY, code, DnsMessageFlags.setOf(true));
         resp.setOpCode(query.opCode());
         resp.setZ(query.z());
@@ -107,6 +107,7 @@ public class DnsServerHandler extends SimpleChannelInboundHandler<DatagramDnsQue
 
         @Override
         public void withResponse(DnsResponse response) throws Exception {
+            System.out.println("Flush response " + response);
             try {
                 ctx.channel().writeAndFlush((DatagramDnsResponse) response);
             } catch (Exception e) {
