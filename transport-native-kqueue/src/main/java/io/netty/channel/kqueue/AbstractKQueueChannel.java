@@ -22,6 +22,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.AbstractChannel;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelConfig;
+import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelMetadata;
 import io.netty.channel.EventLoop;
 import io.netty.channel.RecvByteBufAllocator;
@@ -68,6 +69,14 @@ abstract class AbstractKQueueChannel extends AbstractChannel implements UnixChan
         this.writeFilterEnabled = writeFilterEnabled;
     }
 
+    static boolean isSoErrorZero(BsdSocket fd) {
+        try {
+            return fd.getSoError() == 0;
+        } catch (IOException e) {
+            throw new ChannelException(e);
+        }
+    }
+
     @Override
     public final FileDescriptor fd() {
         return socket;
@@ -92,7 +101,9 @@ abstract class AbstractKQueueChannel extends AbstractChannel implements UnixChan
         // The FD will be closed, which will take of deleting from kqueue.
         readFilterEnabled = writeFilterEnabled = false;
         try {
-            ((KQueueEventLoop) eventLoop()).remove(this);
+            if (isRegistered()) {
+                ((KQueueEventLoop) eventLoop()).remove(this);
+            }
         } finally {
             socket.close();
         }
