@@ -112,6 +112,16 @@ public class DnsResponseCode implements Comparable<DnsResponseCode> {
     public static final DnsResponseCode BADALG = new DnsResponseCode(21, "BADALG");
 
     /**
+     * The 'BADTRUNC' DNS RCODE (22), as defined in <a href="https://tools.ietf.org/html/rfc4635">RFC4635</a>.
+     */
+    public static final DnsResponseCode BADTRUNC = new DnsResponseCode(22, "BADTRUNC");
+
+    /**
+     * The 'BADALG' DNS RCODE (23), as defined in <a href="https://tools.ietf.org/html/rfc7873">RFC7873</a>.
+     */
+    public static final DnsResponseCode BADCOOKIE = new DnsResponseCode(23, "BADCOOKIE");
+
+    /**
      * Returns the {@link DnsResponseCode} that corresponds with the given {@code responseCode}.
      *
      * @param responseCode the DNS RCODE
@@ -191,6 +201,17 @@ public class DnsResponseCode implements Comparable<DnsResponseCode> {
     @Override
     public int hashCode() {
         return intValue();
+    }
+
+    /**
+     * Response codes where this is true can only be used in an OPT
+     * record header in the ADDITIONAL section - there are not enough
+     * bits to express them in the basic header.
+     * @return Whether or not this response code requires use of an EDNS
+     * OPT record.
+     */
+    public boolean isEdnsResponseCode() {
+        return intValue() >= 16;
     }
 
     /**

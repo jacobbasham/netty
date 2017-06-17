@@ -21,6 +21,8 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.MessageToMessageEncoder;
+import static io.netty.handler.codec.dns.DatagramDnsResponseEncoder.ABSOLUTE_MINIMUM_DNS_PACKET_SIZE;
+import static io.netty.handler.codec.dns.DatagramDnsResponseEncoder.DEFAULT_ABSOLUTE_MAX_PACKET_SIZE;
 import io.netty.util.internal.UnstableApi;
 import static io.netty.handler.codec.dns.DatagramDnsResponseEncoder.DEFAULT_BASE_PACKET_SIZE;
 import static io.netty.handler.codec.dns.DatagramDnsResponseEncoder.DEFAULT_MAX_PACKET_SIZE;
@@ -31,8 +33,8 @@ import java.util.List;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
 /**
- * Encodes a {@link DatagramDnsQuery} (or an {@link AddressedEnvelope} of {@link DnsQuery}} into a
- * {@link DatagramPacket}.
+ * Encodes a {@link DatagramDnsQuery} (or an {@link AddressedEnvelope} of
+ * {@link DnsQuery}} into a {@link DatagramPacket}.
  */
 @UnstableApi
 @ChannelHandler.Sharable
@@ -41,8 +43,9 @@ public class DatagramDnsQueryEncoder
 
     private final DnsRecordEncoder recordEncoder;
     private final NameCodec.Factory names;
-    private final int baseBufferSize;
+    private final int minBufferSize;
     private final int maxBufferSize;
+    private final int absoluteMaxPacketSize;
 
     /**
      * Creates a new encoder with
@@ -50,7 +53,7 @@ public class DatagramDnsQueryEncoder
      */
     public DatagramDnsQueryEncoder() {
         this(DnsRecordEncoder.DEFAULT, NameCodec.compressingFactory(), DEFAULT_BASE_PACKET_SIZE,
-                DEFAULT_MAX_PACKET_SIZE);
+                DEFAULT_MAX_PACKET_SIZE, DEFAULT_ABSOLUTE_MAX_PACKET_SIZE);
     }
 
     /**
@@ -58,16 +61,40 @@ public class DatagramDnsQueryEncoder
      *
      * @param recordEncoder encodes DNS records into wire format
      * @param names writes names in wire format
-     * @param baseBufferSize the initial buffer size to create - something
+     * @param minPacketSize the initial buffer size to create - something
      * slightly above average DNS query on-wire byte length
-     * @param maxBufferSize the maximum buffer size to allow
+     * @param maxPacketSize the maximum buffer size to allow, assuming the max
+     * buffer size has not been set on the channel (based on a request's OPT
+     * record header, with which a client can tell a server what the network can
+     * handle).
+     * @param absoluteMaxPacketSize The absolute maximum packet size to allocate
+     * - so a malicious client cannot get us to allocate a huge response buffer.
      */
     public DatagramDnsQueryEncoder(DnsRecordEncoder recordEncoder, NameCodec.Factory names,
-            int baseBufferSize, int maxBufferSize) {
+            int minPacketSize, int maxPacketSize, int absoluteMaxPacketSize) {
         this.recordEncoder = checkNotNull(recordEncoder, "recordEncoder");
-        this.names = names;
-        this.baseBufferSize = baseBufferSize;
-        this.maxBufferSize = maxBufferSize;
+        this.names = checkNotNull(names, "names");
+        if (minPacketSize < ABSOLUTE_MINIMUM_DNS_PACKET_SIZE) {
+            throw new IllegalArgumentException("Packet minimum size too small "
+                    + "- minimum " + ABSOLUTE_MINIMUM_DNS_PACKET_SIZE + " bytes");
+        }
+        if (maxPacketSize < ABSOLUTE_MINIMUM_DNS_PACKET_SIZE) {
+            throw new IllegalArgumentException("Packet maximum size too small "
+                    + "- minimum " + ABSOLUTE_MINIMUM_DNS_PACKET_SIZE + " bytes");
+        }
+        if (maxPacketSize < minPacketSize) {
+            throw new IllegalArgumentException("Minimum packet size "
+                    + minPacketSize + " is > passed maxPacketSize "
+                    + maxPacketSize);
+        }
+        if (absoluteMaxPacketSize < maxPacketSize) {
+            throw new IllegalArgumentException("Absolute max packet size "
+                    + absoluteMaxPacketSize + " is less than max packet size "
+                    + maxPacketSize);
+        }
+        this.minBufferSize = minPacketSize;
+        this.maxBufferSize = maxPacketSize;
+        this.absoluteMaxPacketSize = absoluteMaxPacketSize;
     }
 
     @Override
@@ -75,16 +102,17 @@ public class DatagramDnsQueryEncoder
             ChannelHandlerContext ctx,
             AddressedEnvelope<DnsQuery<?>, InetSocketAddress> in, List<Object> out) throws Exception {
 
+        int maxSize = DatagramDnsResponseEncoder.getMaxUdpPayloadSize(ctx, maxBufferSize, absoluteMaxPacketSize);
         final InetSocketAddress recipient = in.recipient();
         final DnsQuery query = in.content();
-        final ByteBuf buf = allocateBuffer(ctx, in);
+        final ByteBuf buf = allocateBuffer(ctx, in, maxSize);
 
         boolean success = false;
         NameCodec nameWriter = names.getForWrite();
         try {
             encodeHeader(query, buf);
-            encodeQuestions(nameWriter, query, buf);
-            encodeRecords(nameWriter, query, DnsSection.ADDITIONAL, buf);
+            encodeQuestions(nameWriter, query, buf, maxSize);
+            encodeRecords(nameWriter, query, DnsSection.ADDITIONAL, buf, maxSize);
             success = true;
         } finally {
             if (!success) {
@@ -103,8 +131,9 @@ public class DatagramDnsQueryEncoder
      */
     protected ByteBuf allocateBuffer(
             ChannelHandlerContext ctx,
-            @SuppressWarnings("unused") AddressedEnvelope<DnsQuery<?>, InetSocketAddress> msg) throws Exception {
-        return ctx.alloc().ioBuffer(baseBufferSize, maxBufferSize);
+            @SuppressWarnings("unused") AddressedEnvelope<DnsQuery<?>, InetSocketAddress> msg,
+            int maxSize) throws Exception {
+        return ctx.alloc().ioBuffer(minBufferSize, maxSize);
     }
 
     /**
@@ -124,18 +153,21 @@ public class DatagramDnsQueryEncoder
         buf.writeShort(query.count(DnsSection.ADDITIONAL));
     }
 
-    private void encodeQuestions(NameCodec nameWriter, DnsQuery<?> query, ByteBuf buf) throws Exception {
+    private void encodeQuestions(NameCodec nameWriter, DnsQuery<?> query,
+            ByteBuf buf, int maxSize) throws Exception {
         final int count = query.count(DnsSection.QUESTION);
-        for (int i = 0; i < count; i ++) {
-            recordEncoder.encodeQuestion(nameWriter, (DnsQuestion) query.recordAt(DnsSection.QUESTION, i), buf);
+        for (int i = 0; i < count; i++) {
+            recordEncoder.encodeQuestion(nameWriter,
+                    (DnsQuestion) query.recordAt(DnsSection.QUESTION, i),
+                    buf, maxSize);
         }
     }
 
     private void encodeRecords(NameCodec nameWriter, DnsQuery<?> query,
-            DnsSection section, ByteBuf buf) throws Exception {
+            DnsSection section, ByteBuf buf, int maxSize) throws Exception {
         final int count = query.count(section);
-        for (int i = 0; i < count; i ++) {
-            recordEncoder.encodeRecord(nameWriter, query.recordAt(section, i), buf);
+        for (int i = 0; i < count; i++) {
+            recordEncoder.encodeRecord(nameWriter, query.recordAt(section, i), buf, maxSize);
         }
     }
 }

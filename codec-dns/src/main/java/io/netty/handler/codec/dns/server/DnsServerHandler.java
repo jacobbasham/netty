@@ -21,6 +21,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.dns.DnsDecoderException;
 import io.netty.handler.codec.dns.DatagramDnsQuery;
 import io.netty.handler.codec.dns.DatagramDnsResponse;
+import io.netty.handler.codec.dns.DnsMessage;
 import io.netty.handler.codec.dns.DnsMessageFlags;
 import io.netty.handler.codec.dns.DnsOpCode;
 import io.netty.handler.codec.dns.DnsQuestion;
@@ -111,7 +112,7 @@ public class DnsServerHandler extends SimpleChannelInboundHandler<DatagramDnsQue
             try {
                 ctx.channel().writeAndFlush((DatagramDnsResponse) response);
             } catch (Exception e) {
-                handler.exceptionCaught(ctx, e);
+                handler.exceptionCaught(ctx, response, e);
             }
         }
     }
@@ -121,8 +122,12 @@ public class DnsServerHandler extends SimpleChannelInboundHandler<DatagramDnsQue
         ctx.flush();
     }
 
+    private void exceptionCaught(ChannelHandlerContext ctx, DnsMessage msg, Throwable cause) {
+        answerer.exceptionCaught(ctx, msg, cause);
+    }
+
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        answerer.exceptionCaught(ctx, cause);
+        answerer.exceptionCaught(ctx, null, cause);
     }
 }

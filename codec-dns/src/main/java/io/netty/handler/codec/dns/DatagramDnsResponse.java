@@ -27,7 +27,7 @@ import java.util.Set;
  */
 @UnstableApi
 public class DatagramDnsResponse extends DefaultDnsResponse<DatagramDnsResponse>
-        implements AddressedEnvelope<DatagramDnsResponse, InetSocketAddress> {
+        implements AddressedEnvelope<DnsResponse<?>, InetSocketAddress> {
 
     private final InetSocketAddress sender;
     private final InetSocketAddress recipient;

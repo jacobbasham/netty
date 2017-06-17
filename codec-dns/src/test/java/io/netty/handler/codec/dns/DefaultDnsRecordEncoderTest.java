@@ -142,7 +142,8 @@ public class DefaultDnsRecordEncoderTest {
         try {
             DnsOptEcsRecord record = new DefaultDnsOptEcsRecord(
                     payloadSize, extendedRcode, version, prefix, address.getAddress());
-            encoder.encodeRecord(NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT), record, out);
+            encoder.encodeRecord(NameCodec.get(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT),
+                    record, out, Integer.MAX_VALUE);
 
             assertEquals(0, out.readByte()); // Name
             assertEquals(DnsRecordType.OPT.intValue(), out.readUnsignedShort()); // Opt

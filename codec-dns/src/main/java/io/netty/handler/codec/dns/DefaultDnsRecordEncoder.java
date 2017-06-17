@@ -28,6 +28,7 @@ import io.netty.util.internal.UnstableApi;
  */
 @UnstableApi
 public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
+
     private static final int PREFIX_MASK = Byte.SIZE - 1;
 
     /**
@@ -37,16 +38,17 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
     }
 
     @Override
-    public final void encodeQuestion(NameCodec nameCodec, DnsQuestion question, ByteBuf out) throws Exception {
+    public final void encodeQuestion(NameCodec nameCodec, DnsQuestion question,
+            ByteBuf out, int maxPayloadSize) throws Exception {
         nameCodec.writeName(question.name(), out);
         out.writeShort(question.type().intValue());
         out.writeShort(question.dnsClass().intValue());
     }
 
     @Override
-    public void encodeRecord(NameCodec nameCodec, DnsRecord record, ByteBuf out) throws Exception {
+    public void encodeRecord(NameCodec nameCodec, DnsRecord record, ByteBuf out, int maxPayloadSize) throws Exception {
         if (record instanceof DnsQuestion) {
-            encodeQuestion(nameCodec, (DnsQuestion) record, out);
+            encodeQuestion(nameCodec, (DnsQuestion) record, out, maxPayloadSize);
         } else if (record instanceof DnsPtrRecord) {
             encodePtrRecord(nameCodec, (DnsPtrRecord) record, out);
         } else if (record instanceof DnsOptEcsRecord) {
@@ -87,20 +89,25 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
         byte[] bytes = record.address();
         int addressBits = bytes.length << 3;
         if (addressBits < sourcePrefixLength || sourcePrefixLength < 0) {
-            throw new IllegalArgumentException(sourcePrefixLength + ": " +
-                    sourcePrefixLength + " (expected: 0 >= " + addressBits + ')');
+            throw new IllegalArgumentException(sourcePrefixLength + ": "
+                    + sourcePrefixLength + " (expected: 0 >= " + addressBits + ')');
         }
 
         // See http://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
-        final short addressNumber = (short) (bytes.length == 4 ?
-                InternetProtocolFamily.IPv4.addressNumber() : InternetProtocolFamily.IPv6.addressNumber());
+        final short addressNumber = (short) (bytes.length == 4
+                ? InternetProtocolFamily.IPv4.addressNumber() : InternetProtocolFamily.IPv6.addressNumber());
         int payloadLength = calculateEcsAddressLength(sourcePrefixLength, lowOrderBitsToPreserve);
 
-        int fullPayloadLength = 2 + // OPTION-CODE
-                2 + // OPTION-LENGTH
-                2 + // FAMILY
-                1 + // SOURCE PREFIX-LENGTH
-                1 + // SCOPE PREFIX-LENGTH
+        int fullPayloadLength = 2
+                + // OPTION-CODE
+                2
+                + // OPTION-LENGTH
+                2
+                + // FAMILY
+                1
+                + // SOURCE PREFIX-LENGTH
+                1
+                + // SCOPE PREFIX-LENGTH
                 payloadLength; //  ADDRESS...
 
         out.writeShort(fullPayloadLength);
@@ -141,29 +148,30 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
         out.writeShort(contentLen);
         out.writeBytes(content, content.readerIndex(), contentLen);
     }
-   // Package private so it can be reused in the test.
+    // Package private so it can be reused in the test.
+
     static byte padWithZeros(byte b, int lowOrderBitsToPreserve) {
         switch (lowOrderBitsToPreserve) {
-        case 0:
-            return 0;
-        case 1:
-            return (byte) (0x01 & b);
-        case 2:
-            return (byte) (0x03 & b);
-        case 3:
-            return (byte) (0x07 & b);
-        case 4:
-            return (byte) (0x0F & b);
-        case 5:
-            return (byte) (0x1F & b);
-        case 6:
-            return (byte) (0x3F & b);
-        case 7:
-            return (byte) (0x7F & b);
-        case 8:
-            return b;
-        default:
-            throw new IllegalArgumentException("lowOrderBitsToPreserve: " + lowOrderBitsToPreserve);
+            case 0:
+                return 0;
+            case 1:
+                return (byte) (0x01 & b);
+            case 2:
+                return (byte) (0x03 & b);
+            case 3:
+                return (byte) (0x07 & b);
+            case 4:
+                return (byte) (0x0F & b);
+            case 5:
+                return (byte) (0x1F & b);
+            case 6:
+                return (byte) (0x3F & b);
+            case 7:
+                return (byte) (0x7F & b);
+            case 8:
+                return b;
+            default:
+                throw new IllegalArgumentException("lowOrderBitsToPreserve: " + lowOrderBitsToPreserve);
         }
     }
 }

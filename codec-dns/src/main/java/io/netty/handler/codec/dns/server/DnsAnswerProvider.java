@@ -16,6 +16,7 @@
 package io.netty.handler.codec.dns.server;
 
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.dns.DnsMessage;
 import io.netty.handler.codec.dns.DnsQuery;
 
 /**
@@ -60,6 +61,6 @@ public interface DnsAnswerProvider {
      * @param ctx The context
      * @param cause The exception
      */
-    void exceptionCaught(ChannelHandlerContext ctx, Throwable cause);
+    void exceptionCaught(ChannelHandlerContext ctx, DnsMessage message, Throwable cause);
 
 }

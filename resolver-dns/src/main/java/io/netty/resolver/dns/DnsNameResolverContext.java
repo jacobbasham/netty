@@ -21,9 +21,8 @@ import io.netty.buffer.ByteBufHolder;
 import io.netty.channel.AddressedEnvelope;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.socket.InternetProtocolFamily;
-import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.dns.DefaultDnsQuestion;
-import io.netty.handler.codec.dns.DefaultDnsRecordDecoder;
+import io.netty.handler.codec.dns.DnsDecoderException;
 import io.netty.handler.codec.dns.DnsQuestion;
 import io.netty.handler.codec.dns.DnsRawRecord;
 import io.netty.handler.codec.dns.DnsRecord;
@@ -31,6 +30,7 @@ import io.netty.handler.codec.dns.DnsRecordType;
 import io.netty.handler.codec.dns.DnsResponse;
 import io.netty.handler.codec.dns.DnsResponseCode;
 import io.netty.handler.codec.dns.DnsSection;
+import io.netty.handler.codec.dns.NameCodec;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
@@ -367,7 +367,7 @@ abstract class DnsNameResolverContext<T> {
 
         // Check if we have answers, if not this may be an non authority NS and so redirects must be handled.
         if (res.count(DnsSection.ANSWER) == 0) {
-            AuthoritativeNameServerList serverNames = extractAuthoritativeNameServers(question.name(), res);
+            AuthoritativeNameServerList serverNames = extractAuthoritativeNameServers(question.name().toString(), res);
 
             if (serverNames != null) {
                 List<InetSocketAddress> nameServers = new ArrayList<InetSocketAddress>(serverNames.size());
@@ -381,7 +381,7 @@ abstract class DnsNameResolverContext<T> {
                         continue;
                     }
 
-                    final String recordName = r.name();
+                    final String recordName = r.name().toString();
                     AuthoritativeNameServer authoritativeNameServer =
                             serverNames.remove(recordName);
 
@@ -450,8 +450,8 @@ abstract class DnsNameResolverContext<T> {
                 continue;
             }
 
-            final String questionName = question.name().toLowerCase(Locale.US);
-            final String recordName = r.name().toLowerCase(Locale.US);
+            final String questionName = question.name().toString().toLowerCase(Locale.US);
+            final String recordName = r.name().toString().toLowerCase(Locale.US);
 
             // Make sure the record is for the questioned domain.
             if (!recordName.equals(questionName)) {
@@ -537,7 +537,7 @@ abstract class DnsNameResolverContext<T> {
             Promise<T> promise) {
 
         // Resolve the host name in the question into the real host name.
-        final String name = question.name().toLowerCase(Locale.US);
+        final String name = question.name().toString().toLowerCase(Locale.US);
         String resolved = name;
         boolean found = false;
         while (!cnames.isEmpty()) { // Do not attempt to call Map.remove() when the Map is empty
@@ -586,7 +586,7 @@ abstract class DnsNameResolverContext<T> {
                 cnames = new HashMap<String, String>(min(8, answerCount));
             }
 
-            cnames.put(r.name().toLowerCase(Locale.US), domainName.toLowerCase(Locale.US));
+            cnames.put(r.name().toString().toLowerCase(Locale.US), domainName.toLowerCase(Locale.US));
         }
 
         return cnames != null? cnames : Collections.<String, String>emptyMap();
@@ -701,8 +701,8 @@ abstract class DnsNameResolverContext<T> {
     static String decodeDomainName(ByteBuf in) {
         in.markReaderIndex();
         try {
-            return DefaultDnsRecordDecoder.decodeName(in);
-        } catch (CorruptedFrameException e) {
+            return NameCodec.compressingNameCodec().readName(in).toString();
+        } catch (DnsDecoderException e) {
             // In this case we just return null.
             return null;
         } finally {
@@ -834,7 +834,7 @@ abstract class DnsNameResolverContext<T> {
                 return;
             }
 
-            String recordName = r.name().toLowerCase(Locale.US);
+            String recordName = r.name().toString().toLowerCase(Locale.US);
 
             int dots = 0;
             for (int a = recordName.length() - 1, b = questionName.length() - 1; a >= 0; a--, b--) {

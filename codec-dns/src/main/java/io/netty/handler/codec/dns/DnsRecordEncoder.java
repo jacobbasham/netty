@@ -16,8 +16,6 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.util.internal.UnstableApi;
 
 /**
  * Encodes a {@link DnsRecord} into binary representation.
@@ -30,15 +28,11 @@ public interface DnsRecordEncoder {
 
     /**
      * Encodes a {@link DnsQuestion}.
-     *
-     * @param out the output buffer where the encoded question will be written to
      */
-    void encodeQuestion(NameCodec nameWriter, DnsQuestion question, ByteBuf out) throws Exception;
+    void encodeQuestion(NameCodec nameWriter, DnsQuestion question, ByteBuf out, int maxPayloadSize) throws Exception;
 
     /**
      * Encodes a {@link DnsRecord}.
-     *
-     * @param out the output buffer where the encoded record will be written to
      */
-    void encodeRecord(NameCodec nameWriter, DnsRecord record, ByteBuf out) throws Exception;
+    void encodeRecord(NameCodec nameWriter, DnsRecord record, ByteBuf out, int maxPayloadSize) throws Exception;
 }

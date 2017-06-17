@@ -51,4 +51,10 @@ public interface DnsRecord {
      * Returns the time to live after reading for this resource record.
      */
     long timeToLive();
+
+    /**
+     * Returns the raw integer value of the dnsClass field (used for
+     * other purposes by OPT pseudo-records).
+     */
+    int dnsClassValue();
 }

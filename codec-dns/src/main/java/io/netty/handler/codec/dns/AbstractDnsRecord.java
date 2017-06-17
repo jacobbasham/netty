@@ -30,8 +30,8 @@ public abstract class AbstractDnsRecord implements DnsRecord {
 
     private final CharSequence name;
     private final DnsRecordType type;
-    private final DnsClass dnsClass;
-    private final long timeToLive;
+    private final int dnsClass;
+    private final int timeToLive;
 
     /**
      * Creates a new {@link #CLASS_IN IN-class} record.
@@ -61,7 +61,11 @@ public abstract class AbstractDnsRecord implements DnsRecord {
      * @param timeToLive the TTL value of the record
      */
     protected AbstractDnsRecord(CharSequence name, DnsRecordType type, DnsClass dnsClass, long timeToLive) {
-        if (timeToLive < 0) {
+        this(name, type, dnsClass.intValue(), timeToLive);
+    }
+
+    protected AbstractDnsRecord(CharSequence name, DnsRecordType type, int dnsClass, long timeToLive) {
+        if (timeToLive < 0 && type != DnsRecordType.OPT) {
             throw new IllegalArgumentException("timeToLive: " + timeToLive + " (expected: >= 0)");
         }
         // Convert to ASCII which will also check that the length is not too big.
@@ -72,14 +76,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         this.name = name;
         this.type = checkNotNull(type, "type");
         this.dnsClass = dnsClass;
-        this.timeToLive = timeToLive;
-    }
-
-    private static String appendTrailingDot(String name) {
-        if (name.length() > 0 && name.charAt(name.length() - 1) != '.') {
-            return name + '.';
-        }
-        return name;
+        this.timeToLive = (int) timeToLive;
     }
 
     @Override
@@ -94,12 +91,17 @@ public abstract class AbstractDnsRecord implements DnsRecord {
 
     @Override
     public DnsClass dnsClass() {
+        return DnsClass.valueOf(dnsClass);
+    }
+
+    @Override
+    public int dnsClassValue() {
         return dnsClass;
     }
 
     @Override
     public long timeToLive() {
-        return timeToLive;
+        return (long) timeToLive & 0x00000000ffffffffL;
     }
 
     @Override
@@ -115,7 +117,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         final DnsRecord that = (DnsRecord) obj;
 
         return type().intValue() == that.type().intValue()
-                && dnsClass() == that.dnsClass()
+                && dnsClassValue() == that.dnsClassValue()
                 && timeToLive() == that.timeToLive()
                 && charSequencesEqual(name(), that.name(), true);
     }
@@ -125,7 +127,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         int hash = 7;
         hash = 67 * hash + (this.name != null ? charSequenceHashCode(name(), true) : 0);
         hash = 67 * hash + (this.type != null ? this.type.hashCode() : 0);
-        hash = 67 * hash + (this.dnsClass != null ? this.dnsClass.hashCode() : 0);
+        hash = 67 * hash + this.dnsClass;
         hash = 67 * hash + (int) (this.timeToLive ^ (this.timeToLive >>> 32));
         return hash;
     }

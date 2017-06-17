@@ -41,16 +41,22 @@ import java.nio.charset.UnmappableCharacterException;
  * and want to make it more human-readable.
  * </p><p>
  * The standard (no compression) NameWriter is stateless; the compressing
- * NameWriter needs its state cleared after use, and implements AutoCloseable so
- * it can be used in a try-with-resources structure.
+ * NameWriter needs its state cleared after use; NameCodec implements
+ * AutoCloseable so it can be used in a try-with-resources structure.
+ * </p><p>
+ * NameCodec reads and writes <code>CharSequence</code>.  In the case of
+ * non-punycode codecs, the return values will likely be <code>AsciiString</code>,
+ * using 8-bit internal data structures instead of Java's two-byte chars.
+ * Punycode-supporting encoders use String.
  * </p>
  */
 @UnstableApi
 public abstract class NameCodec implements AutoCloseable {
 
     static final AsciiString ROOT = new AsciiString(".");
-    private static NameCodec DEFAULT = new DefaultNameCodec(false, true);
-    private static NameCodec DEFAULT_TRAILING_DOT = new DefaultNameCodec(true, true);
+    private static final NameCodec DEFAULT = new DefaultNameCodec(false, true);
+    private static final NameCodec DEFAULT_TRAILING_DOT = new DefaultNameCodec(true, true);
+    static final CharsetEncoder ASCII_ENCODER = CharsetUtil.US_ASCII.newEncoder();
 
     public static enum Feature {
         /**
@@ -159,7 +165,10 @@ public abstract class NameCodec implements AutoCloseable {
      *
      * @param name The name
      * @param into The buffer
-     * @throws UnmappableCharacterException, InvalidDomainNameException
+     * @throws UnmappableCharacterException If a character is invalid and this
+     * codec does not perform conversion
+     * @throws io.netty.handler.codec.dns.InvalidDomainNameException If the
+     * result of encoding violates the rules of domain name encoding.
      */
     public abstract void writeName(CharSequence name, ByteBuf into) throws UnmappableCharacterException,
             InvalidDomainNameException;
@@ -262,6 +271,11 @@ public abstract class NameCodec implements AutoCloseable {
                         + " instead.");
             }
             return delegate.readName(in);
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
         }
     }
 
@@ -435,15 +449,13 @@ public abstract class NameCodec implements AutoCloseable {
         return new AsciiString(name.array(), 0, name.readableBytes(), false);
     }
 
-    static final CharsetEncoder enc = CharsetUtil.US_ASCII.newEncoder();
-
     protected void checkName(CharSequence name) throws UnencodableCharactersException,
             InvalidDomainNameException {
         int length = name.length();
         if (length > 253) {
             throw new InvalidDomainNameException(name, "Name length must be <= 253");
         }
-        if (!enc.canEncode(name)) {
+        if (!ASCII_ENCODER.canEncode(name)) {
             throw new UnencodableCharactersException(name);
         }
         int lastLabelStart = 0;
@@ -576,6 +588,11 @@ public abstract class NameCodec implements AutoCloseable {
         public void writeName(CharSequence name, ByteBuf into)
                 throws UnmappableCharacterException, InvalidDomainNameException {
             delegate.writeName(IDN.toASCII(name.toString()), into);
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
         }
     }
 }
