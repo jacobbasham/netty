@@ -29,6 +29,8 @@ import io.netty.handler.codec.dns.DnsResponse;
 import io.netty.handler.codec.dns.DnsResponseCode;
 import io.netty.handler.codec.dns.DnsSection;
 import io.netty.util.internal.ObjectUtil;
+import java.net.InetSocketAddress;
+import java.util.Objects;
 
 /**
  * Handles some of the plumbing of writing a DNS server. To use, simply
@@ -66,7 +68,8 @@ public class DnsServerHandler extends SimpleChannelInboundHandler<DatagramDnsQue
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DatagramDnsQuery query) throws Exception {
         try {
-            answerer.respond(query, ctx, new DnsResponderImpl(ctx, this));
+            answerer.respond(query, ctx, new DnsResponderImpl(ctx, this,
+                    query.sender(), query.recipient(), query.id()));
         } catch (Exception ex) {
             exceptionCaught(ctx, ex);
             ctx.channel().writeAndFlush(createErrorResponse(ex, query));
@@ -100,19 +103,45 @@ public class DnsServerHandler extends SimpleChannelInboundHandler<DatagramDnsQue
 
         final ChannelHandlerContext ctx;
         final DnsServerHandler handler;
+        private final InetSocketAddress sender;
+        private final InetSocketAddress recipient;
+        private final int id;
 
-        public DnsResponderImpl(ChannelHandlerContext ctx, DnsServerHandler handler) {
+        public DnsResponderImpl(ChannelHandlerContext ctx, DnsServerHandler handler,
+                InetSocketAddress sender, InetSocketAddress recipient, int id) {
             this.ctx = ctx;
             this.handler = handler;
+            this.sender = sender;
+            this.recipient = recipient;
+            this.id = id;
         }
 
         @Override
         public void withResponse(DnsResponse response) throws Exception {
-            System.out.println("Flush response " + response);
             try {
-                ctx.channel().writeAndFlush((DatagramDnsResponse) response);
+                if (response instanceof DatagramDnsResponse) {
+                    DatagramDnsResponse resp = (DatagramDnsResponse) response;
+                    if (equals(sender, resp.sender())
+                            && equals(recipient, resp.recipient())
+                            && resp.id() == id) {
+                        ctx.channel().writeAndFlush(response);
+                        return;
+                    }
+                }
+                ctx.channel().writeAndFlush(new DatagramDnsResponse(sender,
+                        recipient, id, response));
             } catch (Exception e) {
                 handler.exceptionCaught(ctx, response, e);
+            }
+        }
+
+        private boolean equals(Object a, Object b) {
+            if (a == b) {
+                return true;
+            } else if ((a == null) != (b == null)) {
+                return false;
+            } else {
+                return a.equals(b);
             }
         }
     }

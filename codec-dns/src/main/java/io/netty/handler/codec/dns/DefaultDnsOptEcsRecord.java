@@ -101,4 +101,9 @@ public final class DefaultDnsOptEcsRecord extends AbstractDnsOptPseudoRrRecord i
           .append(scopePrefixLength())
           .append(')').toString();
     }
+
+    @Override
+    public DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
+        throw new UnsupportedOperationException("Not supported yet.");
+    }
 }

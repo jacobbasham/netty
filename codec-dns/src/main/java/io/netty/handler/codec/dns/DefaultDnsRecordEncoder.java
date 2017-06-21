@@ -15,6 +15,7 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.socket.InternetProtocolFamily;
 import io.netty.handler.codec.UnsupportedMessageTypeException;
@@ -65,7 +66,7 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
     private void encodeRecord0(NameCodec nameCodec, DnsRecord record, ByteBuf out) throws Exception {
         nameCodec.writeName(record.name(), out);
         out.writeShort(record.type().intValue());
-        out.writeShort(record.dnsClass().shortValue());
+        out.writeShort(record.dnsClassValue());
         out.writeInt((int) record.timeToLive());
     }
 
@@ -94,20 +95,15 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
         }
 
         // See http://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
-        final short addressNumber = (short) (bytes.length == 4
-                ? InternetProtocolFamily.IPv4.addressNumber() : InternetProtocolFamily.IPv6.addressNumber());
+        final short addressNumber = (short) (bytes.length == 4 ?
+                InternetProtocolFamily.IPv4.addressNumber() : InternetProtocolFamily.IPv6.addressNumber());
         int payloadLength = calculateEcsAddressLength(sourcePrefixLength, lowOrderBitsToPreserve);
 
-        int fullPayloadLength = 2
-                + // OPTION-CODE
-                2
-                + // OPTION-LENGTH
-                2
-                + // FAMILY
-                1
-                + // SOURCE PREFIX-LENGTH
-                1
-                + // SCOPE PREFIX-LENGTH
+        int fullPayloadLength = 2 + // OPTION-CODE
+                2 + // OPTION-LENGTH
+                2 + // FAMILY
+                1 + // SOURCE PREFIX-LENGTH
+                1 + // SCOPE PREFIX-LENGTH
                 payloadLength; //  ADDRESS...
 
         out.writeShort(fullPayloadLength);

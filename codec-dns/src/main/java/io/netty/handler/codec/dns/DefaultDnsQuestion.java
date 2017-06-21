@@ -82,4 +82,10 @@ public class DefaultDnsQuestion extends AbstractDnsRecord implements DnsQuestion
         // Ensure hash code does not match an answer
         return 23 * super.hashCode();
     }
+
+    @Override
+    public DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
+        throw new UnsupportedOperationException("Questions do not have"
+                + " a time-to-live.");
+    }
 }

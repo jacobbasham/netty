@@ -15,7 +15,10 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.CorruptedFrameException;
+import static io.netty.handler.codec.dns.DefaultDnsRecordDecoder.UnderflowPolicy.THROW_ON_UNDERFLOW;
 
 /**
  * The default {@link DnsRecordDecoder} implementation.
@@ -23,6 +26,21 @@ import io.netty.buffer.ByteBuf;
  * @see DefaultDnsRecordEncoder
  */
 public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
+
+    private final UnderflowPolicy policy;
+
+    public enum UnderflowPolicy {
+        RETURN_NULL_ON_UNDERFLOW,
+        THROW_ON_UNDERFLOW
+    }
+
+    public DefaultDnsRecordDecoder() {
+        this(UnderflowPolicy.THROW_ON_UNDERFLOW);
+    }
+
+    public DefaultDnsRecordDecoder(UnderflowPolicy policy) {
+        this.policy = policy;
+    }
 
     @Override
     public final DnsQuestion decodeQuestion(ByteBuf in, NameCodec forReadingNames) throws Exception {
@@ -53,7 +71,14 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         if (endOffset - offset < length) {
             // Not enough data
             in.readerIndex(startOffset);
-            return null;
+            if (policy == THROW_ON_UNDERFLOW) {
+                throw new CorruptedFrameException("Insufficient data "
+                        + (endOffset - offset)
+                    + " remaining bytes but length should be " + length + " at "
+                    + startOffset);
+            } else {
+                return null;
+            }
         }
 
         @SuppressWarnings("unchecked")

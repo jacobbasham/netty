@@ -13,35 +13,30 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package io.netty.handler.codec.dns;
+package io.netty.handler.codec.dns.names;
 
 import io.netty.util.internal.UnstableApi;
 import java.io.IOException;
 
 /**
- * Exception which can be thrown on malformed input.
+ * Thrown when a NameWriter is asked to write a name outside the DNS spec.
  */
 @UnstableApi
-public class DnsDecoderException extends IOException {
+public class InvalidDomainNameException extends IOException {
 
-    private final DnsResponseCode code;
+    private final CharSequence name;
 
-    public DnsDecoderException(DnsResponseCode code, String msg) {
-        super(msg);
-        this.code = code;
+    public InvalidDomainNameException(CharSequence name, String message) {
+        super(message);
+        this.name = name;
     }
 
-    public DnsDecoderException(DnsResponseCode code, String msg, Throwable cause) {
-        super(msg, cause);
-        this.code = code;
+    public InvalidDomainNameException(CharSequence name, String message, Throwable cause) {
+        super(message, cause);
+        this.name = name;
     }
 
-    /**
-     * Get the DNS response code that should be returned.
-     *
-     * @return The response code.
-     */
-    public DnsResponseCode code() {
-        return code;
+    public CharSequence name() {
+        return name;
     }
 }

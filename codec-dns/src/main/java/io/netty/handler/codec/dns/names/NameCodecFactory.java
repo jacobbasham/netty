@@ -13,35 +13,31 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package io.netty.handler.codec.dns;
+package io.netty.handler.codec.dns.names;
 
 import io.netty.util.internal.UnstableApi;
-import java.io.IOException;
 
 /**
- * Exception which can be thrown on malformed input.
+ * NameCodecFactory instances are providers of NameCodec, which can ensure you
+ * always get a NameCodec that does not retain any state (such as the list of
+ * offsets for compression pointers) from a previous use.
  */
 @UnstableApi
-public class DnsDecoderException extends IOException {
-
-    private final DnsResponseCode code;
-
-    public DnsDecoderException(DnsResponseCode code, String msg) {
-        super(msg);
-        this.code = code;
-    }
-
-    public DnsDecoderException(DnsResponseCode code, String msg, Throwable cause) {
-        super(msg, cause);
-        this.code = code;
-    }
+public interface NameCodecFactory {
 
     /**
-     * Get the DNS response code that should be returned.
+     * Get a NameCodec for reading. The result of this call may not be used for
+     * writing, and may throw an exception to prevent that.
      *
-     * @return The response code.
+     * @return A namewriter
      */
-    public DnsResponseCode code() {
-        return code;
-    }
+    NameCodec getForRead();
+
+    /**
+     * Get a NameCodec for writing. The result of this call may not be used for
+     * reading, and may throw an exception to prevent that.
+     *
+     * @return A namewriter
+     */
+    NameCodec getForWrite();
 }

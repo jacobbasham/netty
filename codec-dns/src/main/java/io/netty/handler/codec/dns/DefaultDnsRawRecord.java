@@ -61,6 +61,27 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
         super(name, type, dnsClass, timeToLive);
         this.content = checkNotNull(content, "content");
     }
+    /**
+     * Creates a new record.
+     *
+     * @param name the domain name
+     * @param type the type of the record
+     * @param dnsClass the class of the record, usually one of the following:
+     *                 <ul>
+     *                     <li>{@link #CLASS_IN}</li>
+     *                     <li>{@link #CLASS_CSNET}</li>
+     *                     <li>{@link #CLASS_CHAOS}</li>
+     *                     <li>{@link #CLASS_HESIOD}</li>
+     *                     <li>{@link #CLASS_NONE}</li>
+     *                     <li>{@link #CLASS_ANY}</li>
+     *                 </ul>
+     * @param timeToLive the TTL value of the record
+     */
+    public DefaultDnsRawRecord(
+            CharSequence name, DnsRecordType type, int dnsClass, long timeToLive, ByteBuf content) {
+        super(name, type, dnsClass, timeToLive);
+        this.content = checkNotNull(content, "content");
+    }
 
     @Override
     public ByteBuf content() {
@@ -151,5 +172,10 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
            .append("B)");
 
         return buf.toString();
+    }
+
+    @Override
+    public DefaultDnsRawRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
+        return new DefaultDnsRawRecord(name(), type(), dnsClass, timeToLive, content);
     }
 }

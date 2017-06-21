@@ -15,12 +15,14 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.wire.DnsMessageDecoder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.AddressedEnvelope;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.DecoderException;
+import io.netty.handler.codec.dns.names.NameCodecFeature;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -72,7 +74,9 @@ public class DnsResponseTest {
 
     @Test
     public void readResponseTest() throws Exception {
-        EmbeddedChannel embedder = new EmbeddedChannel(new DatagramDnsResponseDecoder());
+        EmbeddedChannel embedder = new EmbeddedChannel(
+                DnsMessageDecoder.builder()
+                        .withNameFeatures(NameCodecFeature.WRITE_TRAILING_DOT).buildUdpResponseDecoder());
         for (byte[] p: packets) {
             ByteBuf packet = embedder.alloc().buffer(512).writeBytes(p);
             embedder.writeInbound(new DatagramPacket(packet, null, new InetSocketAddress(0)));
@@ -97,7 +101,8 @@ public class DnsResponseTest {
 
     @Test
     public void readMalformedResponseTest() throws Exception {
-        EmbeddedChannel embedder = new EmbeddedChannel(new DatagramDnsResponseDecoder());
+        EmbeddedChannel embedder = new EmbeddedChannel(
+                DnsMessageDecoder.builder().buildUdpResponseDecoder());
         ByteBuf packet = embedder.alloc().buffer(512).writeBytes(malformedLoopPacket);
         exception.expect(DecoderException.class);
         embedder.writeInbound(new DatagramPacket(packet, null, new InetSocketAddress(0)));

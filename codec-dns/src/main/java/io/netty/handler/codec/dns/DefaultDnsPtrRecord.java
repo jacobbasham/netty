@@ -42,7 +42,7 @@ public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrReco
      * @param hostname the hostname this PTR record resolves to.
      */
     public DefaultDnsPtrRecord(
-            String name, DnsClass dnsClass, long timeToLive, String hostname) {
+            CharSequence name, DnsClass dnsClass, long timeToLive, CharSequence hostname) {
         super(name, DnsRecordType.PTR, dnsClass, timeToLive);
         this.hostname = checkNotNull(hostname, "hostname");
     }
@@ -69,5 +69,10 @@ public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrReco
            .append(hostname);
 
         return buf.toString();
+    }
+
+    @Override
+    public DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
+        return new DefaultDnsPtrRecord(name(), DnsClass.valueOf(dnsClass), timeToLive, hostname);
     }
 }

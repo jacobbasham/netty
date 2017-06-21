@@ -15,12 +15,13 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import static io.netty.handler.codec.dns.DefaultDnsRecordEncoderTest.assertCharsEqual;
-import static io.netty.handler.codec.dns.NameCodec.Feature.COMPRESSION;
-import static io.netty.handler.codec.dns.NameCodec.Feature.READ_TRAILING_DOT;
-import static io.netty.handler.codec.dns.NameCodec.Feature.WRITE_TRAILING_DOT;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.COMPRESSION;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.WRITE_TRAILING_DOT;
 import io.netty.util.internal.StringUtil;
 import org.junit.Test;
 

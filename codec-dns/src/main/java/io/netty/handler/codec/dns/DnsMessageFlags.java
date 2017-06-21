@@ -15,6 +15,7 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.util.internal.UnstableApi;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
@@ -23,6 +24,7 @@ import java.util.Set;
 /**
  * Defines, reads and writes dns message header flags.
  */
+@UnstableApi
 public enum DnsMessageFlags {
     RECURSION_DESIRED(8), AUTHORITATIVE_ANSWER(10), TRUNCATED(9), RECURSION_AVAILABLE(7), IS_REPLY(15);
     final byte flagsBitOffset;
@@ -303,6 +305,7 @@ public enum DnsMessageFlags {
             throw new UnsupportedOperationException("Read only");
         }
 
+        @Override
         public boolean equals(Object o) {
             if (o instanceof FlagSet) {
                 return ((FlagSet) o).value() == value;
@@ -315,6 +318,7 @@ public enum DnsMessageFlags {
             return false;
         }
 
+        @Override
         public int hashCode() {
             int h = 0;
             Iterator<DnsMessageFlags> i = iterator();
@@ -327,6 +331,7 @@ public enum DnsMessageFlags {
             return h;
         }
 
+        @Override
         public String toString() {
             StringBuilder sb = new StringBuilder();
             for (DnsMessageFlags f : this) {
@@ -374,6 +379,7 @@ public enum DnsMessageFlags {
         }
 
         @Override
+        @SuppressWarnings("element-type-mismatch")
         public boolean containsAll(Collection<?> c) {
             boolean result = true;
             for (Object o : c) {

@@ -140,9 +140,13 @@ final class DnsMessageUtil {
 
     private static void appendRecords(StringBuilder buf, DnsMessage message, DnsSection section) {
         final int count = message.count(section);
+        if (count == 0) {
+            return;
+        }
+        buf.append(StringUtil.NEWLINE).append(StringUtil.TAB).append(section);
         for (int i = 0; i < count; i ++) {
             buf.append(StringUtil.NEWLINE)
-               .append(StringUtil.TAB)
+               .append(StringUtil.TAB).append(StringUtil.TAB)
                .append(message.<DnsRecord>recordAt(section, i));
         }
     }

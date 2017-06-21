@@ -150,4 +150,9 @@ public abstract class AbstractDnsRecord implements DnsRecord {
 
         return buf.toString();
     }
+
+    @Override
+    public DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
+        throw new UnsupportedOperationException("Not supported.");
+    }
 }

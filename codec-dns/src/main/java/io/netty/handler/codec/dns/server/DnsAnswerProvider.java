@@ -59,6 +59,7 @@ public interface DnsAnswerProvider {
      * Called when the {@link DnsServerHandler} encounters an exception.
      *
      * @param ctx The context
+     * @param message The message (if any in the context where thrown)
      * @param cause The exception
      */
     void exceptionCaught(ChannelHandlerContext ctx, DnsMessage message, Throwable cause);

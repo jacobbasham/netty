@@ -15,11 +15,13 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.util.internal.UnstableApi;
 import java.util.Arrays;
 
 /**
  * DNS record resource class, with defaults for RFC-defined classes.
  */
+@UnstableApi
 public class DnsClass implements Comparable<DnsClass> {
 
     public static final short CLASS_IN = 0x0001;
@@ -36,7 +38,7 @@ public class DnsClass implements Comparable<DnsClass> {
     public static final DnsClass ANY = new DnsClass(CLASS_ANY, "ANY");
 
     private final short value;
-    private static DnsClass[] values = new DnsClass[]{IN, CSNET, CHAOS, HESIOD, NONE, ANY};
+    private static final DnsClass[] VALUES = new DnsClass[]{IN, CSNET, CHAOS, HESIOD, NONE, ANY};
     private final String name;
 
     public DnsClass(short value, String name) {
@@ -63,7 +65,7 @@ public class DnsClass implements Comparable<DnsClass> {
      * DnsClass matches one already registered.
      */
     public static void register(DnsClass nue) {
-        for (DnsClass clazz : values) {
+        for (DnsClass clazz : VALUES) {
             if (clazz.intValue() == nue.intValue()) {
                 throw new IllegalArgumentException("Attempt to redefine " + clazz + " int value " + nue.intValue());
             }
@@ -73,15 +75,15 @@ public class DnsClass implements Comparable<DnsClass> {
                 }
             }
         }
-        DnsClass[] result = new DnsClass[values.length + 1];
-        System.arraycopy(values, 0, result, 0, values.length);
+        DnsClass[] result = new DnsClass[VALUES.length + 1];
+        System.arraycopy(VALUES, 0, result, 0, VALUES.length);
         result[result.length - 1] = nue;
-        Arrays.sort(values);
+        Arrays.sort(VALUES);
     }
 
     public static DnsClass[] values() {
-        DnsClass[] result = new DnsClass[values.length];
-        System.arraycopy(values, 0, result, 0, values.length);
+        DnsClass[] result = new DnsClass[VALUES.length];
+        System.arraycopy(VALUES, 0, result, 0, VALUES.length);
         return result;
     }
 
@@ -89,6 +91,7 @@ public class DnsClass implements Comparable<DnsClass> {
         return name;
     }
 
+    @Override
     public String toString() {
         return name();
     }
@@ -118,7 +121,7 @@ public class DnsClass implements Comparable<DnsClass> {
      * @return A DnsClass or null.
      */
     public static DnsClass valueOf(CharSequence name) {
-        for (DnsClass dc : values) {
+        for (DnsClass dc : VALUES) {
             if (dc.name().contentEquals(name)) {
                 return dc;
             }
@@ -133,10 +136,12 @@ public class DnsClass implements Comparable<DnsClass> {
         return mine == theirs ? 0 : mine > theirs ? 1 : -1;
     }
 
+    @Override
     public int hashCode() {
         return intValue() * 5153;
     }
 
+    @Override
     public boolean equals(Object o) {
         return o instanceof DnsClass && ((DnsClass) o).intValue() == intValue();
     }

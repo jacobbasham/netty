@@ -13,28 +13,25 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package io.netty.handler.codec.dns;
+package io.netty.handler.codec.dns.names;
 
-import java.io.IOException;
+import java.nio.charset.UnmappableCharacterException;
 
 /**
- * Thrown when a NameWriter is asked to write a name outside the DNS spec.
+ * Subclass of UnmappableCharacterException, which is the most descriptive
+ * exception we could choose, extended so we can give it a message.
  */
-public class InvalidDomainNameException extends IOException {
+final class UnencodableCharactersException extends UnmappableCharacterException {
 
     private final CharSequence name;
 
-    public InvalidDomainNameException(CharSequence name, String message) {
-        super(message);
+    UnencodableCharactersException(CharSequence name) {
+        super(name.length());
         this.name = name;
     }
 
-    public InvalidDomainNameException(CharSequence name, String message, Throwable cause) {
-        super(message, cause);
-        this.name = name;
-    }
-
-    public CharSequence name() {
-        return name;
+    @Override
+    public String getMessage() {
+        return "Name contains non-ascii character - convert it to punycode first: '" + name + "'";
     }
 }

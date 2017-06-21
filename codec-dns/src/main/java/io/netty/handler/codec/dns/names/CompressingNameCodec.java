@@ -13,10 +13,11 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package io.netty.handler.codec.dns;
+package io.netty.handler.codec.dns.names;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.handler.codec.dns.DnsDecoderException;
 import java.nio.charset.UnmappableCharacterException;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,7 +25,7 @@ import java.util.Map;
 /**
  * Name writer which uses DNS message compression pointers.
  */
-final class CompressingNameCodec extends NameCodec {
+class CompressingNameCodec extends NameCodec {
 
     private final Map<CharSequence, Integer> positions = new HashMap<CharSequence, Integer>();
     private final boolean readTrailingDot;
@@ -45,10 +46,19 @@ final class CompressingNameCodec extends NameCodec {
         positions.clear();
     }
 
+    protected void write(ByteBuf into, CharSequence label, int length) {
+        into.writeByte(length);
+        ByteBufUtil.writeAscii(into, label);
+    }
+
     @Override
     public void writeName(CharSequence name, ByteBuf buf) throws UnmappableCharacterException,
             InvalidDomainNameException {
         checkName(name);
+        if (name.length() == 0 || (name.length() == 1 && name.charAt(0) == '.')) {
+            buf.writeByte(0);
+            return;
+        }
         while (name.length() > 1 && name.charAt(name.length() - 1) == '.') {
             name = name.subSequence(0, name.length() - 1);
         }
@@ -76,8 +86,7 @@ final class CompressingNameCodec extends NameCodec {
                     positions.put(remainder, buf.writerIndex());
                     lastStart = i + 1;
                     if (length != 0) {
-                        buf.writeByte(length);
-                        ByteBufUtil.writeAscii(buf, label);
+                        write(buf, label, length);
                     }
                     if (i == max - 1) {
                         // ----
@@ -87,7 +96,7 @@ final class CompressingNameCodec extends NameCodec {
                         buf.readerIndex(buf.writerIndex() - 1);
                         if (buf.readByte() == '.') {
                             buf.readerIndex(old); // do this here or an exception will be thrown
-                                                   // when readerIndex exceeds writerIndex
+                            // when readerIndex exceeds writerIndex
                             buf.writerIndex(buf.writerIndex() - 1);
                         } else {
                             buf.readerIndex(old);

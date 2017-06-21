@@ -57,4 +57,24 @@ public interface DnsRecord {
      * other purposes by OPT pseudo-records).
      */
     int dnsClassValue();
+
+    /**
+     * Returns either this record, with its time to live and dnsClass
+     * values set to the passed values, or a new record (callers should
+     * test to see which has happened).  This is needed becuase EDNS
+     * breaks encapsulation to store the high 12 bits of the response code in
+     * an OPT record in the ADDITIONAL section - a message encoder that has to
+     * send the message's response code on the wire and encounters a response
+     * code > 15 (e.g. BADCOOKIE) needs to find or create an OPT record and
+     * replace 8 bits of its timeToLive field, and also potentially the dns
+     * class value with the UDP maximum payload size.
+     * <p>
+     * Encoders should take care not to overwrite bits they are not using.
+     *
+     * @param timeToLive The new timeToLive value
+     * @param dnsClass The new dnsClass value
+     * @return Either this record, updated, or a new record which may replace
+     * this one in the outgoing message
+     */
+    DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass);
 }

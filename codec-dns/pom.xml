@@ -65,5 +65,25 @@
       <version>4.11</version>
     </dependency>
   </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <parallel>methods</parallel>
+          <parallelMavenExecution>false</parallelMavenExecution>
+          <perCoreThreadCount>1</perCoreThreadCount>
+          <threadCount>1</threadCount>
+          <reuseForks>false</reuseForks>
+          <trimStackTrace>false</trimStackTrace>
+          <systemPropertyVariables>
+            <acteur.debug>true</acteur.debug>
+            <forkNumber>${surefire.forkNumber}</forkNumber>
+            <io.netty.leakDetection.level>advanced</io.netty.leakDetection.level>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>
-

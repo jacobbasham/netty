@@ -15,6 +15,7 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.buffer.ByteBuf;
 
 /**
