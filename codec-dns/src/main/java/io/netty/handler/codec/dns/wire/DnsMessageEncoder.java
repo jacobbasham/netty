@@ -21,7 +21,7 @@ import io.netty.channel.AddressedEnvelope;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.handler.codec.dns.DefaultDnsRawRecord;
-import io.netty.handler.codec.dns.DnsClass;
+import static io.netty.handler.codec.dns.DnsClass.CLASS_IN;
 import io.netty.handler.codec.dns.DnsMessage;
 import static io.netty.handler.codec.dns.DnsMessageFlags.IS_REPLY;
 import io.netty.handler.codec.dns.DnsQuery;
@@ -340,7 +340,7 @@ public class DnsMessageEncoder {
                 optRecord = rec;
                 ttl = rec.timeToLive();
                 // Already set, don't clobber it
-                if (!DnsClass.IN.equals(rec.dnsClass())) {
+                if (CLASS_IN != rec.dnsClassValue() && rec.dnsClassValue() != 0) {
                     udpPayloadSize = rec.dnsClassValue();
                 }
                 break;
@@ -351,7 +351,7 @@ public class DnsMessageEncoder {
         ttl = (ttl & 0x00FFFFFF) | (highBits << 24);
         if (optRecord == null) {
             // Add a new empty OPT record to hold the values
-            optRecord = new DefaultDnsRawRecord(".", OPT, DnsClass.valueOf(udpPayloadSize), ttl, Unpooled.EMPTY_BUFFER);
+            optRecord = new DefaultDnsRawRecord(".", OPT, udpPayloadSize, ttl, Unpooled.EMPTY_BUFFER);
             msg.addRecord(ADDITIONAL, optRecord);
         } else {
             // Modify the existing OPT record, replacing it if we were
