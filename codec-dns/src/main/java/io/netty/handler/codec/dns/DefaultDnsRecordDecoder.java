@@ -17,6 +17,7 @@ package io.netty.handler.codec.dns;
 
 import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.handler.codec.CorruptedFrameException;
 import static io.netty.handler.codec.dns.DnsRecordDecoder.UnderflowPolicy.THROW_ON_UNDERFLOW;
 
@@ -60,6 +61,12 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         final int endOffset = in.writerIndex();
         if (endOffset - startOffset < 10) {
             // Not enough data
+            if (policy == THROW_ON_UNDERFLOW) {
+                throw new CorruptedFrameException("A DNS record requires at"
+                        + " least 10 bytes, but only " + (endOffset - startOffset)
+                        + " are available at " + startOffset + " in "
+                        + ByteBufUtil.hexDump(in));
+            }
             in.readerIndex(startOffset);
             return null;
         }
@@ -75,61 +82,54 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
             // Not enough data
             in.readerIndex(startOffset);
             if (policy == THROW_ON_UNDERFLOW) {
-                throw new CorruptedFrameException("Insufficient data "
+                throw new CorruptedFrameException("Insufficient data: "
                         + (endOffset - offset)
-                    + " remaining bytes but length should be " + length + " at "
-                    + startOffset);
+                        + " remaining bytes, but length should be " + length + " at "
+                        + startOffset + " in " + ByteBufUtil.hexDump(in));
             } else {
                 return null;
             }
         }
-
-        @SuppressWarnings("unchecked")
-        DnsRecord record = decodeRecord(name, type, aClass, ttl, in, offset, length, forReadingNames);
+        DnsRecord record = decodeRecord(name, type, aClass, ttl, in, length, forReadingNames);
         in.readerIndex(offset + length);
         return record;
     }
 
     /**
-     * Decodes a record from the information decoded so far by {@link #decodeRecord(ByteBuf)}.
+     * Decodes a record from the information decoded so far by
+     * {@link #decodeRecord(ByteBuf)}.
      *
      * @param name the domain name of the record
      * @param type the type of the record
      * @param dnsClass the class of the record
      * @param timeToLive the TTL of the record
      * @param in the {@link ByteBuf} that contains the RDATA
-     * @param offset the start offset of the RDATA in {@code in}
      * @param length the length of the RDATA
-     * @param forReadingNames used by some decoders to decode DNS names with pointer compression or
-     * punycode
+     * @param forReadingNames used by some decoders to decode DNS names with
+     * pointer compression or punycode
      *
-     * @return a {@link DnsRawRecord}. Override this method to decode RDATA and return other record implementation.
+     * @return the io.netty.handler.codec.dns.DnsRecord
      */
     protected DnsRecord decodeRecord(
             CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
-            ByteBuf in, int offset, int length, NameCodec forReadingNames) throws Exception {
+            ByteBuf in, int length, NameCodec forReadingNames) throws Exception {
         boolean isUnicastResponse = false;
         if (mdns) {
             isUnicastResponse = (dnsClass & MDNS_UNICAST_RESPONSE_BIT) != 0;
             dnsClass = dnsClass & MDNS_DNS_CLASS_MASK;
         }
 
-        // DNS message compression means that domain names may contain "pointers" to other positions in the packet
-        // to build a full message. This means the indexes are meaningful and we need the ability to reference the
-        // indexes un-obstructed, and thus we cannot use a slice here.
-        // See https://www.ietf.org/rfc/rfc1035 [4.1.4. Message compression]
-        if (type == DnsRecordType.PTR) { // XXX deleteme
+        if (type == DnsRecordType.PTR) {
             return new DefaultDnsPtrRecord(
                     name.toString(), DnsClass.valueOf(dnsClass), timeToLive,
-                    // XXX duplicating the buffer is silly, but a bunch of tests depend on it
-                    // We are passing in the buffer at the correct location already
-                    forReadingNames.readName(in.duplicate().setIndex(offset, offset + length)),
+                    forReadingNames.readName(in),
                     isUnicastResponse
             );
         }
         return new DefaultDnsRawRecord(
                 name, type, dnsClass, timeToLive,
-                in.retainedDuplicate().setIndex(offset, offset + length).retain(),
+                in.retainedDuplicate().slice(in.readerIndex(), in.readableBytes())
+                        .retain(),
                 isUnicastResponse
         );
     }
