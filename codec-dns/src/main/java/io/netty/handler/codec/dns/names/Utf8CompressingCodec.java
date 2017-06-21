@@ -77,4 +77,9 @@ final class Utf8CompressingCodec extends CompressingNameCodec implements NameCod
     public NameCodec getForWrite() {
         return this;
     }
+
+    @Override
+    public boolean allowsWhitespace() {
+        return true;
+    }
 }

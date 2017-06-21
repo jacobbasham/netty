@@ -53,6 +53,16 @@ public class DefaultDnsQuestion extends AbstractDnsRecord implements DnsQuestion
         super(name, type, dnsClass, 0);
     }
 
+    public DefaultDnsQuestion(CharSequence name, DnsRecordType type, DnsClass dnsClass,
+            boolean isUnicastResponsePreferred) {
+        super(name, type, dnsClass.intValue(), 0, isUnicastResponsePreferred);
+    }
+
+    public DefaultDnsQuestion(CharSequence name, DnsRecordType type, int dnsClassValue,
+            boolean isUnicastResponsePreferred) {
+        super(name, type, dnsClassValue, 0, isUnicastResponsePreferred);
+    }
+
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder(64);
@@ -70,6 +80,7 @@ public class DefaultDnsQuestion extends AbstractDnsRecord implements DnsQuestion
         return buf.toString();
     }
 
+    @Override
     public boolean equals(Object o) {
         // Without this, we could match against an answer to this question
         if (o instanceof DnsQuestion) {
@@ -78,6 +89,7 @@ public class DefaultDnsQuestion extends AbstractDnsRecord implements DnsQuestion
         return false;
     }
 
+    @Override
     public int hashCode() {
         // Ensure hash code does not match an answer
         return 23 * super.hashCode();

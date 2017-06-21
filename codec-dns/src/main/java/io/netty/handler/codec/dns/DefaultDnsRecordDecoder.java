@@ -18,7 +18,7 @@ package io.netty.handler.codec.dns;
 import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.CorruptedFrameException;
-import static io.netty.handler.codec.dns.DefaultDnsRecordDecoder.UnderflowPolicy.THROW_ON_UNDERFLOW;
+import static io.netty.handler.codec.dns.DnsRecordDecoder.UnderflowPolicy.THROW_ON_UNDERFLOW;
 
 /**
  * The default {@link DnsRecordDecoder} implementation.
@@ -28,18 +28,15 @@ import static io.netty.handler.codec.dns.DefaultDnsRecordDecoder.UnderflowPolicy
 public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
 
     private final UnderflowPolicy policy;
-
-    public enum UnderflowPolicy {
-        RETURN_NULL_ON_UNDERFLOW,
-        THROW_ON_UNDERFLOW
-    }
+    protected final boolean mdns;
 
     public DefaultDnsRecordDecoder() {
-        this(UnderflowPolicy.THROW_ON_UNDERFLOW);
+        this(THROW_ON_UNDERFLOW, false);
     }
 
-    public DefaultDnsRecordDecoder(UnderflowPolicy policy) {
+    public DefaultDnsRecordDecoder(UnderflowPolicy policy, boolean mdns) {
         this.policy = policy;
+        this.mdns = mdns;
     }
 
     @Override
@@ -47,7 +44,12 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         CharSequence name = forReadingNames.readName(in);
         DnsRecordType type = DnsRecordType.valueOf(in.readUnsignedShort());
         int qClass = in.readUnsignedShort();
-        return new DefaultDnsQuestion(name, type, DnsClass.valueOf(qClass));
+        boolean isUnicastResponsePreferred = false;
+        if (mdns) {
+            isUnicastResponsePreferred = (qClass & MDNS_UNICAST_RESPONSE_BIT) != 0;
+            qClass &= MDNS_DNS_CLASS_MASK;
+        }
+        return new DefaultDnsQuestion(name, type, qClass, isUnicastResponsePreferred);
     }
 
     @Override
@@ -63,7 +65,8 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         }
 
         final DnsRecordType type = DnsRecordType.valueOf(in.readUnsignedShort());
-        final int aClass = in.readUnsignedShort();
+        int aClass = in.readUnsignedShort();
+
         final long ttl = in.readUnsignedInt();
         final int length = in.readUnsignedShort();
         final int offset = in.readerIndex();
@@ -105,6 +108,12 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
     protected DnsRecord decodeRecord(
             CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
             ByteBuf in, int offset, int length, NameCodec forReadingNames) throws Exception {
+        boolean isUnicastResponse = false;
+        if (mdns) {
+            isUnicastResponse = (dnsClass & MDNS_UNICAST_RESPONSE_BIT) != 0;
+            dnsClass = dnsClass & MDNS_DNS_CLASS_MASK;
+        }
+
         // DNS message compression means that domain names may contain "pointers" to other positions in the packet
         // to build a full message. This means the indexes are meaningful and we need the ability to reference the
         // indexes un-obstructed, and thus we cannot use a slice here.
@@ -112,10 +121,16 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         if (type == DnsRecordType.PTR) { // XXX deleteme
             return new DefaultDnsPtrRecord(
                     name.toString(), DnsClass.valueOf(dnsClass), timeToLive,
-                    forReadingNames.readName(in.duplicate().setIndex(offset, offset + length)).toString());
+                    // XXX duplicating the buffer is silly, but a bunch of tests depend on it
+                    // We are passing in the buffer at the correct location already
+                    forReadingNames.readName(in.duplicate().setIndex(offset, offset + length)),
+                    isUnicastResponse
+            );
         }
         return new DefaultDnsRawRecord(
-                name, type, DnsClass.valueOf(dnsClass), timeToLive,
-                in.retainedDuplicate().setIndex(offset, offset + length).retain());
+                name, type, dnsClass, timeToLive,
+                in.retainedDuplicate().setIndex(offset, offset + length).retain(),
+                isUnicastResponse
+        );
     }
 }

@@ -109,6 +109,18 @@ public class NameCodecTest {
     }
 
     @Test
+    public void testWildcardCharacter() throws Exception {
+        testOne("*.foo.example");
+        testOne("*.foo.example", READ_TRAILING_DOT, WRITE_TRAILING_DOT);
+        testOne("*.foo.example", READ_TRAILING_DOT, WRITE_TRAILING_DOT, COMPRESSION);
+        testOne("*.foo.example", COMPRESSION);
+        testOne("*.foo.example", COMPRESSION, PUNYCODE);
+        testOne("*.foo.example", PUNYCODE);
+        testOne("*.foo.example", MDNS_UTF_8);
+        testOne("*.foo.example", MDNS_UTF_8, COMPRESSION);
+    }
+
+    @Test
     public void testSpecialNames() throws UnmappableCharacterException, InvalidDomainNameException {
         assertOnlyZeroWritten("", NameCodec.basicNameCodec());
         assertOnlyZeroWritten("", NameCodec.basicNameCodec().toPunycodeNameCodec());

@@ -31,11 +31,14 @@ import io.netty.util.internal.UnstableApi;
 public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
 
     private static final int PREFIX_MASK = Byte.SIZE - 1;
+    protected final boolean mdns;
 
-    /**
-     * Creates a new instance.
-     */
-    protected DefaultDnsRecordEncoder() {
+    public DefaultDnsRecordEncoder() {
+        this(false);
+    }
+
+    public DefaultDnsRecordEncoder(boolean mdns) {
+        this.mdns = mdns;
     }
 
     @Override
@@ -43,7 +46,7 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
             ByteBuf out, int maxPayloadSize) throws Exception {
         nameCodec.writeName(question.name(), out);
         out.writeShort(question.type().intValue());
-        out.writeShort(question.dnsClass().intValue());
+        encodeDnsClass(question, out);
     }
 
     @Override
@@ -63,10 +66,18 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
         }
     }
 
+    protected void encodeDnsClass(DnsRecord record, ByteBuf into) {
+        int dnsClass = record.dnsClassValue();
+        if (mdns && record.isUnicast()) {
+            dnsClass |= DefaultDnsRecordDecoder.MDNS_UNICAST_RESPONSE_BIT;
+        }
+        into.writeShort(dnsClass);
+    }
+
     private void encodeRecord0(NameCodec nameCodec, DnsRecord record, ByteBuf out) throws Exception {
         nameCodec.writeName(record.name(), out);
         out.writeShort(record.type().intValue());
-        out.writeShort(record.dnsClassValue());
+        encodeDnsClass(record, out);
         out.writeInt((int) record.timeToLive());
     }
 
@@ -135,7 +146,7 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
         nameCodec.writeName(record.name(), out);
 
         out.writeShort(record.type().intValue());
-        out.writeShort(record.dnsClass().intValue());
+        encodeDnsClass(record, out);
         out.writeInt((int) record.timeToLive());
 
         ByteBuf content = record.content();

@@ -28,7 +28,6 @@ import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.SocketUtils;
 import io.netty.util.internal.StringUtil;
 import static io.netty.util.internal.StringUtil.charSequencesEqual;
-import io.netty.util.internal.ThreadLocalRandom;
 import org.junit.Test;
 
 import java.net.InetAddress;

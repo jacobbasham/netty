@@ -15,12 +15,15 @@
  */
 package io.netty.handler.codec.dns;
 
+import io.netty.handler.codec.dns.names.InvalidDomainNameException;
+import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.UnstableApi;
 
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import static io.netty.util.internal.StringUtil.charSequenceHashCode;
 import static io.netty.util.internal.StringUtil.charSequencesEqual;
+import java.nio.charset.UnmappableCharacterException;
 
 /**
  * A skeletal implementation of {@link DnsRecord}.
@@ -32,6 +35,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
     private final DnsRecordType type;
     private final int dnsClass;
     private final int timeToLive;
+    private final boolean isUnicastResponse;
 
     /**
      * Creates a new {@link #CLASS_IN IN-class} record.
@@ -65,6 +69,11 @@ public abstract class AbstractDnsRecord implements DnsRecord {
     }
 
     protected AbstractDnsRecord(CharSequence name, DnsRecordType type, int dnsClass, long timeToLive) {
+        this(name, type, dnsClass, timeToLive, false);
+    }
+
+    protected AbstractDnsRecord(CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
+            boolean isUnicastResponse) {
         if (timeToLive < 0 && type != DnsRecordType.OPT) {
             throw new IllegalArgumentException("timeToLive: " + timeToLive + " (expected: >= 0)");
         }
@@ -72,11 +81,34 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         // See:
         //   - https://github.com/netty/netty/issues/4937
         //   - https://github.com/netty/netty/issues/4935
-//        this.name = appendTrailingDot(IDN.toASCII(checkNotNull(name, "name")));
+        try {
+            // Whether the name is encodable depends on the encoder used, so
+            // this is really the wrong place for this test.  However, to not
+            // regress, this will check overall and label lengths and
+            // leading and trailing hyphens.  IDN would be the wrong thing to
+            // use since mDNS + UTF-8 will tolerate characters IDN will not;
+            // and if encoding with one of the ascii encoders, non-ascii
+            // characters are not allowed at all.  This test will check for
+            // anything that will be illegal by any standard:
+            if (false) {
+                NameCodec.validateName(name, true, true);
+            }
+        } catch (UnmappableCharacterException ex) {
+            throw new IllegalArgumentException(ex);
+        } catch (InvalidDomainNameException ex) {
+            throw new IllegalArgumentException(ex);
+        }
+
         this.name = name;
         this.type = checkNotNull(type, "type");
         this.dnsClass = dnsClass;
         this.timeToLive = (int) timeToLive;
+        this.isUnicastResponse = isUnicastResponse;
+    }
+
+    @Override
+    public boolean isUnicast() {
+        return isUnicastResponse;
     }
 
     @Override
@@ -143,6 +175,10 @@ public abstract class AbstractDnsRecord implements DnsRecord {
                 .append(timeToLive())
                 .append(' ');
 
+        if (isUnicast()) {
+            buf.append("(unicast) ");
+        }
+
         DnsMessageUtil.appendRecordClass(buf, dnsClass())
                 .append(' ')
                 .append(type().name())
@@ -151,6 +187,9 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         return buf.toString();
     }
 
+    /**
+     * Stub implementation which throws UnsupportedOperationException.
+     */
     @Override
     public DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
         throw new UnsupportedOperationException("Not supported.");

@@ -25,6 +25,8 @@ import io.netty.util.internal.UnstableApi;
  * including invalid records is likely an error and THROW should be the policy;
  * if you are debugging and want to be sure what you're putting on the wire is
  * what you think you are, INCLUDE will do that.
+ * <p>
+ * Used by {@link DnsMessageEncoder} and {@link DnsMessageDecoder}
  */
 @UnstableApi
 public enum IllegalRecordPolicy {

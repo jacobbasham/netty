@@ -19,7 +19,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.AddressedEnvelope;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.handler.codec.dns.DefaultDnsRawRecord;
 import io.netty.handler.codec.dns.DnsClass;
@@ -30,6 +29,8 @@ import io.netty.handler.codec.dns.DnsRecord;
 import io.netty.handler.codec.dns.DnsRecordEncoder;
 import io.netty.handler.codec.dns.DnsRecordType;
 import static io.netty.handler.codec.dns.DnsRecordType.OPT;
+import static io.netty.handler.codec.dns.DnsRecordType.SOA;
+import static io.netty.handler.codec.dns.DnsRecordType.SRV;
 import io.netty.handler.codec.dns.DnsResponse;
 import io.netty.handler.codec.dns.DnsResponseCode;
 import static io.netty.handler.codec.dns.DnsResponseCode.NOERROR;
@@ -60,6 +61,7 @@ public class DnsMessageEncoder {
     private static final DnsSection[] ALL_SECTIONS_ORDERED
             = new DnsSection[]{QUESTION, ANSWER, AUTHORITY, ADDITIONAL};
     private final IllegalRecordPolicy policy;
+    private final boolean mdns;
 
     /**
      * Create a new encoder using the passed parameters.
@@ -74,12 +76,13 @@ public class DnsMessageEncoder {
      */
     public DnsMessageEncoder(Limits limits,
             DnsRecordEncoder encoder, NameCodecFactory names,
-            IllegalRecordPolicy policy, DnsMessageWinnower winnower) {
+            IllegalRecordPolicy policy, DnsMessageWinnower winnower, boolean mdns) {
         this.encoder = checkNotNull(encoder, "encoder");
         this.names = checkNotNull(names, "names");
         this.limits = checkNotNull(limits, "limits");
         this.policy = checkNotNull(policy, "policy");
         this.winnower = winnower;
+        this.mdns = mdns;
     }
 
     /**
@@ -87,7 +90,8 @@ public class DnsMessageEncoder {
      */
     public DnsMessageEncoder() {
         this(Limits.DEFAULT, DnsRecordEncoder.DEFAULT,
-                NameCodec.compressingFactory(), IllegalRecordPolicy.THROW, null);
+                NameCodec.compressingFactory(), IllegalRecordPolicy.THROW,
+                null, false);
     }
 
     public MessageToMessageEncoder<AddressedEnvelope<DnsResponse<?>, InetSocketAddress>>
@@ -118,6 +122,7 @@ public class DnsMessageEncoder {
         private DnsMessageWinnower winnower;
         private DnsRecordEncoder encoder = DnsRecordEncoder.DEFAULT;
         private IllegalRecordPolicy policy = IllegalRecordPolicy.THROW;
+        private boolean mdns;
 
         private MessageEncoderBuilder() {
         }
@@ -151,7 +156,23 @@ public class DnsMessageEncoder {
                 factory = NameCodec.compressingFactory();
             }
             Limits limits = limitsBuilder.build();
-            return new DnsMessageEncoder(limits, encoder, factory, policy, winnower);
+            return new DnsMessageEncoder(limits, encoder, factory, policy, winnower, mdns);
+        }
+
+        /**
+         * Create an encoder which will handle mDNS messages, decoding the high
+         * bit of the DnsClass as a boolean describing unicast message handling.
+         * Note that calling this automatically changes the NameCodec
+         * configuration to MDNS_UTF_8 / COMPRESSION / WRITE_TRAILING_DOT, which
+         * are required for mDNS.
+         */
+        public MessageEncoderBuilder mDNS() {
+            this.mdns = true;
+            nameFeatures.remove(NameCodecFeature.PUNYCODE);
+            nameFeatures.add(NameCodecFeature.MDNS_UTF_8);
+            nameFeatures.add(NameCodecFeature.COMPRESSION);
+            nameFeatures.add(NameCodecFeature.WRITE_TRAILING_DOT);
+            return this;
         }
 
         /**
@@ -345,7 +366,10 @@ public class DnsMessageEncoder {
     }
 
     /**
-     * Encode a DnsResponse into a buffer.
+     * Encode a DnsResponse into a buffer. Note that all names written within
+     * this call will be part of the passed NameCodec's compression table, if
+     * you pass in a compressing name codec - in that case, it should be clean
+     * when you pass it in, and you should close it after this call.
      *
      * @param into The byte buf to encode into
      * @param msg The message
@@ -382,17 +406,16 @@ public class DnsMessageEncoder {
         // - not allowed to have any ANSWER or AUTHORITY records
         // - allowed to have only exactly one OPT record in ADDITIONAL
         boolean isError = !NOERROR.equals(code);
-        boolean isQuestion = !msg.flags().contains(IS_REPLY);
+        boolean isQuery = !msg.flags().contains(IS_REPLY);
 
         // Count the ADDITIONAL records, which will differ based on whether
         // this is a question, no error response or an error response
-        int additionalCount;
         // Also throw an error here if illegal records are present and the
         // IllegalRecordPolicy is THROW.
-        if ((isError || isQuestion) && policy != IllegalRecordPolicy.INCLUDE) {
+        if ((isError || isQuery) && policy != IllegalRecordPolicy.INCLUDE) {
             // In error responses and questions, the only legal item
             // in the additional section is an OPT record
-            additionalCount = 0;
+            int additionalCount = 0;
             int itemsInAdditionalSection = msg.count(ADDITIONAL);
             for (int i = 0; i < itemsInAdditionalSection; i++) {
                 DnsRecord rec = msg.recordAt(ADDITIONAL, i);
@@ -402,28 +425,26 @@ public class DnsMessageEncoder {
                     // is a legitimate need for that if multiple decoupled
                     // things are composing a response
                     if (additionalCount > 1 && policy != IllegalRecordPolicy.INCLUDE) {
-                        throw new CorruptedFrameException("Only one OPT record "
+                        throw new InvalidDnsRecordException("Only one OPT record "
                                 + "allowed per DNS message - see "
                                 + "https://tools.ietf.org/html/rfc6891#section-6.1.1");
                     }
-                } else if ((isError || isQuestion) && policy == IllegalRecordPolicy.THROW) {
-                    throw new CorruptedFrameException("In error responses and "
+                } else if ((isError || isQuery) && policy == IllegalRecordPolicy.THROW) {
+                    throw new InvalidDnsRecordException("In error responses and "
                             + "questions, only "
                             + "OPT records are allowed in the ADDITIONAL section, "
                             + "but found " + rec);
                 }
             }
-        } else {
-            additionalCount = msg.count(ADDITIONAL);
         }
         // Check the other sections and throw if required by policy
-        if ((isError || isQuestion) && policy == IllegalRecordPolicy.THROW) {
+        if ((isError || isQuery) && policy == IllegalRecordPolicy.THROW) {
             if (msg.count(ANSWER) != 0) {
-                throw new CorruptedFrameException("Found an ANSWER record in a "
+                throw new InvalidDnsRecordException("Found an ANSWER record in a "
                         + "message which is either a query or an error.");
             }
             if (msg.count(AUTHORITY) != 0) {
-                throw new CorruptedFrameException("Found an AUTHORITY record in a "
+                throw new InvalidDnsRecordException("Found an AUTHORITY record in a "
                         + "message which is either a query or an error.");
             }
         }
@@ -431,25 +452,19 @@ public class DnsMessageEncoder {
         // Write the message header
         into.writeShort(msg.id());
         into.writeShort(flags);
-        into.writeShort(msg.count(QUESTION));
-        boolean omitAnswerAndAuthoritySections = (isQuestion || isError) && (policy != IllegalRecordPolicy.INCLUDE);
-        // Handle the ANSWER and AUTHORITY counts appropriately - include
-        // them if they should be there, or if the policy is to include
-        // them (generating malformed but readable packets)
-        if (omitAnswerAndAuthoritySections) {
-            into.writeShort(0);
-            into.writeShort(0);
-        } else {
-            into.writeShort(msg.count(ANSWER));
-            into.writeShort(msg.count(AUTHORITY));
-        }
-        // Computed above
-        into.writeShort(additionalCount);
+        boolean omitAnswerAndAuthoritySections = (isQuery || isError) && (policy != IllegalRecordPolicy.INCLUDE);
+
+        int countsPosition = into.writerIndex();
+        into.writerIndex(into.writerIndex() + (ALL_SECTIONS_ORDERED.length * 2));
+
+        // Store final counts into this array and rewrite
+        int[] counts = new int[ALL_SECTIONS_ORDERED.length];
 
         // Iterate all records, check they are legal, and include, ignore or
         // throw according to policy
-        for (DnsSection sect : ALL_SECTIONS_ORDERED) {
-            int max = sect == ADDITIONAL ? additionalCount : msg.count(sect);
+        for (int sectionIndex = 0; sectionIndex < ALL_SECTIONS_ORDERED.length; sectionIndex++) {
+            DnsSection sect = ALL_SECTIONS_ORDERED[sectionIndex];
+            int max = msg.count(sect);
             // Skip sections we've written 0 counts for above
             if (omitAnswerAndAuthoritySections) {
                 switch (sect) {
@@ -458,10 +473,20 @@ public class DnsMessageEncoder {
                         continue;
                 }
             }
+            if (!mdns && sect == QUESTION && max > 1) {
+                switch(policy) {
+                    case DISCARD :
+                        continue;
+                    case THROW :
+                        throw new InvalidDnsRecordException("mDNS allows multiple "
+                                + "question section entries, but this encoder "
+                                + "does not have mDNS support turned on.");
+                }
+            }
             int optCountForSection = 0;
-            for (int i = 0; i < max; i++) {
-                DnsRecord record = msg.recordAt(sect, i);
-                if (isError || isQuestion) {
+            for (int recordIndex = 0; recordIndex < max; recordIndex++) {
+                DnsRecord record = msg.recordAt(sect, recordIndex);
+                if (isError || isQuery) {
                     switch (sect) {
                         case ANSWER:
                         case AUTHORITY:
@@ -469,7 +494,7 @@ public class DnsMessageEncoder {
                                 // Loop back and get the next record/section
                                 continue;
                             } else if (policy == IllegalRecordPolicy.THROW) {
-                                throw new CorruptedFrameException("Query and "
+                                throw new InvalidDnsRecordException("Query and "
                                         + "error messages should not have "
                                         + "contents in the " + sect + " section"
                                         + " but was requested to encode " + record);
@@ -483,7 +508,7 @@ public class DnsMessageEncoder {
                         if (policy == IllegalRecordPolicy.DISCARD) {
                             continue;
                         } else if (policy == IllegalRecordPolicy.THROW) {
-                            throw new CorruptedFrameException("OPT messages are "
+                            throw new InvalidDnsRecordException("OPT messages are "
                                     + "only permitted in the ADDITIONAL section "
                                     + "of a DNS message, but requested to encode "
                                     + record + " in the " + sect + " section. See "
@@ -495,10 +520,18 @@ public class DnsMessageEncoder {
                         if (policy == IllegalRecordPolicy.DISCARD) {
                             continue;
                         } else if (policy == IllegalRecordPolicy.THROW) {
-                            throw new CorruptedFrameException("Only one OPT "
+                            throw new InvalidDnsRecordException("Only one OPT "
                                     + "record allowed per message "
                                     + "- https://tools.ietf.org/html/rfc6891#section-6.1.1");
                         }
+                    }
+                }
+                if (mdns && SOA.equals(record.type())) {
+                    if (policy == IllegalRecordPolicy.DISCARD) {
+                        continue;
+                    } else if (policy == IllegalRecordPolicy.THROW) {
+                        throw new InvalidDnsRecordException("SOA records not allowed"
+                                + " in mDNS, but requested to encode " + record);
                     }
                 }
                 boolean reallyWriteRecord = true;
@@ -507,15 +540,38 @@ public class DnsMessageEncoder {
                 if (policy != IllegalRecordPolicy.INCLUDE) {
                     // If the policy is THROW and there is something illegal
                     // here, we have already thrown it
-                    if ((isError || isQuestion) && sect == DnsSection.ADDITIONAL) {
+                    if ((isError || isQuery) && sect == DnsSection.ADDITIONAL) {
                         reallyWriteRecord = record.type() == OPT;
                     }
                 }
                 if (reallyWriteRecord) {
-                    encoder.encodeRecord(nameCodec, record, into, maxSize);
+                    NameCodec codecToUse = nameCodec;
+                    boolean isSRV = SRV.equals(record.type());
+                    if ((!mdns && isSRV) || (mdns && isSRV && record.isUnicast())) {
+                        // See https://tools.ietf.org/html/rfc6762#section-18.14
+                        // SRV records may not be compressed for unicast DNS
+                        // but may be for multicast DNS
+                        if (mdns && codecToUse.supportsUnicode()) {
+                            codecToUse = NameCodec.get(NameCodecFeature.WRITE_TRAILING_DOT,
+                                    NameCodecFeature.MDNS_UTF_8);
+                        } else {
+                            codecToUse = NameCodec.basicNameCodec();
+                        }
+                    }
+                    encoder.encodeRecord(codecToUse, record, into, maxSize);
+                    counts[sectionIndex]++;
+                    if (codecToUse != nameCodec) {
+                        codecToUse.close();
+                    }
                 }
             }
         }
+        int endIndex = into.writerIndex();
+        into.writerIndex(countsPosition);
+        for (int i = 0; i < counts.length; i++) {
+            into.writeShort(counts[i]);
+        }
+        into.writerIndex(endIndex);
     }
 
     /**

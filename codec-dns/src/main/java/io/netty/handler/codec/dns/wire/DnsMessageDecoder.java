@@ -53,24 +53,27 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
     private final NameCodecFactory names;
     private final DnsMessageFactory<M> factory;
     private IllegalRecordPolicy policy;
+    private final boolean mdns;
 
     public DnsMessageDecoder(DnsMessageFactory<M> factory) {
-        this(DnsRecordDecoder.DEFAULT, NameCodec.compressingFactory(), factory, IllegalRecordPolicy.THROW);
+        this(DnsRecordDecoder.DEFAULT, NameCodec.compressingFactory(), factory,
+                IllegalRecordPolicy.THROW, false);
     }
 
     /**
      * Creates a new decoder with the specified {@code recordDecoder}.
      */
     public DnsMessageDecoder(DnsRecordDecoder decoder, DnsMessageFactory<M> factory, IllegalRecordPolicy policy) {
-        this(decoder, NameCodec.compressingFactory(), factory, policy);
+        this(decoder, NameCodec.compressingFactory(), factory, policy, false);
     }
 
     public DnsMessageDecoder(DnsRecordDecoder decoder, NameCodecFactory names,
-            DnsMessageFactory<M> factory, IllegalRecordPolicy policy) {
+            DnsMessageFactory<M> factory, IllegalRecordPolicy policy, boolean mdns) {
         this.recordDecoder = checkNotNull(decoder, "decoder");
         this.names = checkNotNull(names, "names");
         this.factory = checkNotNull(factory, "factory");
         this.policy = checkNotNull(policy, "policy");
+        this.mdns = mdns;
     }
 
     /**
@@ -92,6 +95,7 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
         private final Set<NameCodecFeature> nameFeatures = EnumSet.noneOf(NameCodecFeature.class);
         private DnsRecordDecoder encoder = DnsRecordDecoder.DEFAULT;
         private IllegalRecordPolicy policy = IllegalRecordPolicy.THROW;
+        private boolean mdns;
 
         /**
          * Build a decoder which decodes messages to instances of DnsQuery.
@@ -107,11 +111,20 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
             return buildFor(new DnsResponseFactory());
         }
 
+        public DnsMessageDecoder<DnsMessage<?>> buildQueryAndResponseDecoder() {
+            return buildFor(new EitherFactory());
+        }
+
+        public MessageToMessageDecoder<DatagramPacket> buildUdpQueryAndResponseDecoder() {
+            return new DatagramDnsQueryDecoder(buildQueryAndResponseDecoder());
+        }
+
         /**
          * Build a decoder with a custom factory for creating DnsMessage
          * objects.
          */
         public <T extends DnsMessage<?>> DnsMessageDecoder<T> buildFor(DnsMessageFactory<T> msgs) {
+            checkNotNull(msgs, "msgs");
             NameCodecFactory factory;
             if (!nameFeatures.isEmpty()) {
                 factory = NameCodec.factory(nameFeatures.toArray(
@@ -119,7 +132,23 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
             } else {
                 factory = NameCodec.compressingFactory();
             }
-            return new DnsMessageDecoder<T>(encoder, factory, msgs, policy);
+            return new DnsMessageDecoder<T>(encoder, factory, msgs, policy, mdns);
+        }
+
+        /**
+         * Create an encoder which will handle mDNS messages, decoding the high
+         * bit of the DnsClass as a boolean describing unicast message handling.
+         * Note that calling this automatically changes the NameCodec
+         * configuration to MDNS_UTF_8 / COMPRESSION / WRITE_TRAILING_DOT, which
+         * are required for mDNS.
+         */
+        public MessageDecoderBuilder mDNS() {
+            this.mdns = true;
+            nameFeatures.remove(NameCodecFeature.PUNYCODE);
+            nameFeatures.add(NameCodecFeature.MDNS_UTF_8);
+            nameFeatures.add(NameCodecFeature.COMPRESSION);
+            nameFeatures.add(NameCodecFeature.WRITE_TRAILING_DOT);
+            return this;
         }
 
         /**
@@ -144,8 +173,8 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
          * be liberal with what you accept, choose IGNORE (which will silently
          * discard them) or INCLUDE to include them.
          */
-        public MessageDecoderBuilder withPolicy(IllegalRecordPolicy policy) {
-            this.policy = policy;
+        public MessageDecoderBuilder withIllegalRecordPolicy(IllegalRecordPolicy policy) {
+            this.policy = checkNotNull(policy, "policy");
             return this;
         }
 
@@ -172,6 +201,10 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
 
     public M decode(ByteBuf content, InetSocketAddress sender, InetSocketAddress recipient) throws Exception {
         final M message = toMessage(sender, recipient, content);
+        if (message == null) {
+            content.release();
+            return null;
+        }
         boolean isQuery = !message.flags().contains(DnsMessageFlags.IS_REPLY);
         boolean success = false;
         NameCodec nameCodec = names.getForRead();
@@ -285,6 +318,29 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
         }
     }
 
+    static final class EitherFactory implements DnsMessageFactory<DnsMessage<?>> {
+
+        DnsResponseFactory responses = new DnsResponseFactory();
+        DnsQueryFactory queries = new DnsQueryFactory();
+
+        @Override
+        public DnsMessage<?> createMessage(InetSocketAddress sender, InetSocketAddress recipient,
+                int id, DnsOpCode opCode, DnsResponseCode responseCode, DnsMessageFlags.FlagSet flags) {
+            if (flags.contains(IS_REPLY)) {
+                return responses.createMessage(sender, recipient, id, opCode, responseCode, flags);
+            } else {
+                return queries.createMessage(sender, recipient, id, opCode, responseCode, flags);
+            }
+        }
+
+        @Override
+        public void updateResponseCode(DnsResponseCode ednsResponseCode, DnsMessage on) {
+            if (on instanceof DatagramDnsResponse) {
+                ((DatagramDnsResponse) on).setCode(ednsResponseCode);
+            }
+        }
+    }
+
     private void decodeQuestions(DnsMessage query, ByteBuf buf, int questionCount,
             NameCodec nameCodec) throws Exception {
         for (int i = 0; i < questionCount; i++) {
@@ -304,7 +360,7 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
                 if (isOpt) {
                     optRecord = record;
                 }
-                if (isQuery) {
+                if (isQuery && !mdns) {
                     switch (policy) {
                         case DISCARD:
                             if (section != DnsSection.ADDITIONAL) {

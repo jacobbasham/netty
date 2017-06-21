@@ -26,6 +26,8 @@ import io.netty.util.internal.UnstableApi;
  */
 @UnstableApi
 public interface DnsRecordDecoder {
+    short MDNS_UNICAST_RESPONSE_BIT = (short) (1 << 15);
+    short MDNS_DNS_CLASS_MASK = Short.MAX_VALUE;
 
     DnsRecordDecoder DEFAULT = new DefaultDnsRecordDecoder();
 
@@ -45,4 +47,23 @@ public interface DnsRecordDecoder {
      * @return the decoded record, or {@code null} if there are not enough data in the input buffer
      */
     <T extends DnsRecord> T decodeRecord(ByteBuf in, NameCodec forReadingNames) throws Exception;
+
+    /**
+     * Policy for record decoders on what to do when decoding a record if there
+     * are not enough bytes in the buffer to complete decoding.  Historical
+     * versions of Netty simply returned null;  using RETURN_NULL_ON_UNDERFLOW
+     * keeps compatibility with that approach.  THROW_ON_UNDERFLOW will cause
+     * the decoder to throw an exception if the buffer is truncated.
+     */
+    public enum UnderflowPolicy {
+        /**
+         * Original behavior - decoder returns null if there is not enough
+         * data.
+         */
+        RETURN_NULL_ON_UNDERFLOW,
+        /**
+         * Throw an exception if there is not enough data.
+         */
+        THROW_ON_UNDERFLOW
+    }
 }

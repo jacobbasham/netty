@@ -13,30 +13,28 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package io.netty.handler.codec.dns.names;
+package io.netty.handler.codec.dns.wire;
 
 import io.netty.handler.codec.EncoderException;
-import io.netty.util.internal.UnstableApi;
 
 /**
- * Thrown when a NameWriter is asked to write a name outside the DNS spec.
+ * Thrown when the encoder is asked to encode something that will result
+ * in an invalid DNS packet, if the encoder's IllegalRecordPolicy is
+ * THROW.
+ * @see IllegalRecordPolicy
  */
-@UnstableApi
-public class InvalidDomainNameException extends EncoderException {
+public final class InvalidDnsRecordException extends EncoderException {
 
-    private final CharSequence name;
-
-    public InvalidDomainNameException(CharSequence name, String message) {
-        super(message);
-        this.name = name;
-    }
-
-    public InvalidDomainNameException(CharSequence name, String message, Throwable cause) {
+    public InvalidDnsRecordException(String message, Throwable cause) {
         super(message, cause);
-        this.name = name;
     }
 
-    public CharSequence name() {
-        return name;
+    public InvalidDnsRecordException(String message) {
+        super(message);
     }
+
+    public InvalidDnsRecordException(Throwable cause) {
+        super(cause);
+    }
+
 }

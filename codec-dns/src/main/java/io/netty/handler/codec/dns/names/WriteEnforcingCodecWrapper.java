@@ -73,4 +73,8 @@ final class WriteEnforcingCodecWrapper extends NameCodec {
                 + ", isWrite=" + isWrite + "}";
     }
 
+    @Override
+    public boolean allowsWhitespace() {
+        return delegate.allowsWhitespace();
+    }
 }

@@ -19,7 +19,6 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.MessageToMessageDecoder;
-import io.netty.handler.codec.dns.DatagramDnsQuery;
 import java.util.List;
 
 /**
@@ -28,9 +27,9 @@ import java.util.List;
 @ChannelHandler.Sharable
 final class DatagramDnsQueryDecoder extends MessageToMessageDecoder<DatagramPacket> {
 
-    private final DnsMessageDecoder<DatagramDnsQuery> decoder;
+    private final DnsMessageDecoder<?> decoder;
 
-    DatagramDnsQueryDecoder(DnsMessageDecoder<DatagramDnsQuery> decoder) {
+    DatagramDnsQueryDecoder(DnsMessageDecoder<?> decoder) {
         this.decoder = decoder;
     }
 
@@ -41,7 +40,9 @@ final class DatagramDnsQueryDecoder extends MessageToMessageDecoder<DatagramPack
 
     @Override
     protected void decode(ChannelHandlerContext ctx, DatagramPacket packet, List<Object> out) throws Exception {
-        DatagramDnsQuery query = decoder.decode(packet.content(), packet.sender(), packet.recipient());
-        out.add(query);
+        Object received = decoder.decode(packet.content(), packet.sender(), packet.recipient());
+        if (received != null) {
+            out.add(received);
+        }
     }
 }

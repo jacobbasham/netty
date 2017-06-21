@@ -42,8 +42,8 @@ public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrReco
      * @param hostname the hostname this PTR record resolves to.
      */
     public DefaultDnsPtrRecord(
-            CharSequence name, DnsClass dnsClass, long timeToLive, CharSequence hostname) {
-        super(name, DnsRecordType.PTR, dnsClass, timeToLive);
+            CharSequence name, DnsClass dnsClass, long timeToLive, CharSequence hostname, boolean isUnicastResponse) {
+        super(name, DnsRecordType.PTR, dnsClass.intValue(), timeToLive, isUnicastResponse);
         this.hostname = checkNotNull(hostname, "hostname");
     }
 
@@ -73,6 +73,7 @@ public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrReco
 
     @Override
     public DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
-        return new DefaultDnsPtrRecord(name(), DnsClass.valueOf(dnsClass), timeToLive, hostname);
+        return new DefaultDnsPtrRecord(name(), DnsClass.valueOf(dnsClass),
+                timeToLive, hostname, isUnicast());
     }
 }

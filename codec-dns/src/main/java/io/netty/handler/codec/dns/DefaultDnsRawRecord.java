@@ -79,7 +79,30 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
      */
     public DefaultDnsRawRecord(
             CharSequence name, DnsRecordType type, int dnsClass, long timeToLive, ByteBuf content) {
-        super(name, type, dnsClass, timeToLive);
+        this(name, type, dnsClass, timeToLive, content, false);
+    }
+
+    /**
+     * Creates a new record.
+     *
+     * @param name the domain name
+     * @param type the type of the record
+     * @param dnsClass the class of the record, usually one of the following:
+     *                 <ul>
+     *                     <li>{@link #CLASS_IN}</li>
+     *                     <li>{@link #CLASS_CSNET}</li>
+     *                     <li>{@link #CLASS_CHAOS}</li>
+     *                     <li>{@link #CLASS_HESIOD}</li>
+     *                     <li>{@link #CLASS_NONE}</li>
+     *                     <li>{@link #CLASS_ANY}</li>
+     *                 </ul>
+     * @param timeToLive the TTL value of the record
+     * @param isUnicastResponse mDNS only - is this a unicast response
+     */
+    public DefaultDnsRawRecord(
+            CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
+            ByteBuf content, boolean isUnicastResponse) {
+        super(name, type, dnsClass, timeToLive, isUnicastResponse);
         this.content = checkNotNull(content, "content");
     }
 

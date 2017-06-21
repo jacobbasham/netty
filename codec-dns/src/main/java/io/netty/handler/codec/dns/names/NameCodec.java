@@ -380,6 +380,10 @@ public abstract class NameCodec implements AutoCloseable {
         }
     }
 
+    public boolean allowsWhitespace() {
+        return false;
+    }
+
     /**
      * Check that the passed name can actually be encoded into ASCII, is legal
      * length for a DNS name, etc.
@@ -390,40 +394,66 @@ public abstract class NameCodec implements AutoCloseable {
      * @throws InvalidDomainNameException If the name structurally cannot be a
      * spec-compliant domain name
      */
-    protected void checkName(CharSequence name) throws UnencodableCharactersException,
+    protected void checkName(CharSequence name) throws UnmappableCharacterException,
             InvalidDomainNameException {
+        validateName(name, supportsUnicode(), allowsWhitespace());
+    }
+
+    /**
+     * Check that the passed name can actually be encoded into ASCII, is legal
+     * length for a DNS name, etc. Note that this does not test for IDN illegal
+     * characters (you might be using mDNS UTF-8 which has fewer restrictions),
+     * but attempting to encode illegal characters with punycode will fail when
+     * you call writeName().
+     *
+     * @param name The name
+     * @param unicode If true, don't fail on non-ascii characters
+     * @throws UnencodableCharactersException If the name contains invalid
+     * characters
+     * @throws InvalidDomainNameException If the name structurally cannot be a
+     * spec-compliant domain name
+     */
+    public static void validateName(CharSequence name, boolean unicode,
+            boolean whitspaceOk) throws UnmappableCharacterException,
+            InvalidDomainNameException {
+
         int length = name.length();
         if (length > 253) {
             throw new InvalidDomainNameException(name, "Name length must be <= 253");
         }
-        if (!supportsUnicode() && !ASCII_ENCODER.canEncode(name)) {
+        if (!unicode && !ASCII_ENCODER.canEncode(name)) {
             throw new UnencodableCharactersException(name);
         }
         int lastLabelStart = 0;
         for (int i = 0; i < length; i++) {
             char c = name.charAt(i);
-            if (Character.isWhitespace(c)) {
+            if (!whitspaceOk && Character.isWhitespace(c)) {
                 throw new InvalidDomainNameException(name, "Name contains "
                         + "illegal whitespace '" + (int) c
                         + "' at " + i + ": '" + name + "'");
             }
-            if (!legalCharacter(c, i - lastLabelStart)) {
+            if (!legalCharacter(c, i - lastLabelStart, length, unicode)) {
                 throw new InvalidDomainNameException(name, "Name contains illegal character '" + c
                         + "' at " + i + ": '" + name + "'");
             }
             if (c == '.' || c == '@') {
                 lastLabelStart = i + 1;
             }
+            if (i - lastLabelStart > 63) {
+                throw new InvalidDomainNameException(name, "Label too long (> 63 chars)");
+            }
         }
     }
 
-    private boolean legalCharacter(char c, int index) {
-        boolean result = (c >= 'a' && c <= 'z')
+    private static boolean legalCharacter(char c, int index, int length, boolean unicode) {
+        boolean result = unicode || ((c >= 'a' && c <= 'z')
                 || (c >= 'A' && c <= 'Z')
                 || (c >= '0' && c <= '9')
+                || c == '*'
                 || c == '-'
-                || c == '.';
-        if (result && index == 0 && c == '-') { // Hyphen is legal, but not as leading char
+                || c == '.');
+        // Hyphen is legal, but not as leading or trailing char
+        if (result && c == '-' && (index == 0 || index == length - 1)) {
             result = false;
         }
         return result;

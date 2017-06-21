@@ -45,8 +45,12 @@ final class PunycodeNameCodec extends NameCodec {
             throw new IllegalArgumentException("Missing non-ascii chars? : "
                     + name + " in a " + name.getClass().getName());
         }
-        String ascii = IDN.toASCII(name.toString());
-        delegate.writeName(ascii, into);
+        try {
+            String ascii = IDN.toASCII(name.toString());
+            delegate.writeName(ascii, into);
+        } catch (IllegalArgumentException ex) {
+            throw new InvalidDomainNameException(name, "IDN failed", ex);
+        }
     }
 
     @Override

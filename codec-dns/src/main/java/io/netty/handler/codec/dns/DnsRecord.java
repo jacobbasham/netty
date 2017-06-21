@@ -77,4 +77,12 @@ public interface DnsRecord {
      * this one in the outgoing message
      */
     DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass);
+
+    /**
+     * <strong>mDNS only</strong> For responses, whether or not
+     * this is a unicast DNS unicast response;  for questions, whether or
+     * not a unicast response is preferred.
+     */
+    boolean isUnicast();
+
 }

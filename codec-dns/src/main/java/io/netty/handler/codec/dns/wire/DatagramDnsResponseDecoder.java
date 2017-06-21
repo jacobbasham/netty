@@ -42,6 +42,9 @@ final class DatagramDnsResponseDecoder extends MessageToMessageDecoder<DatagramP
 
     @Override
     protected void decode(ChannelHandlerContext ctx, DatagramPacket packet, List<Object> out) throws Exception {
-        out.add(decoder.decode(packet.content(), packet.sender(), packet.recipient()));
+        DatagramDnsResponse resp = decoder.decode(packet.content(), packet.sender(), packet.recipient());
+        if (resp != null) {
+            out.add(resp);
+        }
     }
 }

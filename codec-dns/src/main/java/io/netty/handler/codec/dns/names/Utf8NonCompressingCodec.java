@@ -87,4 +87,9 @@ final class Utf8NonCompressingCodec extends NonCompressingNameCodec implements N
     public NameCodec getForWrite() {
         return this;
     }
+
+    @Override
+    public boolean allowsWhitespace() {
+        return true;
+    }
 }
