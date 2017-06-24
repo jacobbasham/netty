@@ -554,7 +554,7 @@ public class DnsMessageEncoder {
                 if (reallyWriteRecord) {
                     NameCodec codecToUse = nameCodec;
                     boolean isSRV = SRV.equals(record.type());
-                    if ((!mdns && isSRV) || (mdns && isSRV && record.isUnicast())) {
+                    if ((!mdns && isSRV) || (mdns && isSRV && record.isUnicastOrCacheFlushRequested())) {
                         // See https://tools.ietf.org/html/rfc6762#section-18.14
                         // SRV records may not be compressed for unicast DNS
                         // but may be for multicast DNS

@@ -17,13 +17,10 @@ package io.netty.handler.codec.dns;
 
 import static io.netty.handler.codec.dns.DnsMessageUtil.nameHashCode;
 import static io.netty.handler.codec.dns.DnsMessageUtil.namesEqual;
-import io.netty.handler.codec.dns.names.InvalidDomainNameException;
-import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.UnstableApi;
 
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
-import java.nio.charset.UnmappableCharacterException;
 
 /**
  * A skeletal implementation of {@link DnsRecord}.
@@ -54,14 +51,14 @@ public abstract class AbstractDnsRecord implements DnsRecord {
      * @param name the domain name
      * @param type the type of the record
      * @param dnsClass the class of the record, usually one of the following:
-     * <ul>
-     * <li>{@link #CLASS_IN}</li>
-     * <li>{@link #CLASS_CSNET}</li>
-     * <li>{@link #CLASS_CHAOS}</li>
-     * <li>{@link #CLASS_HESIOD}</li>
-     * <li>{@link #CLASS_NONE}</li>
-     * <li>{@link #CLASS_ANY}</li>
-     * </ul>
+     *                 <ul>
+     *                     <li>{@link #CLASS_IN}</li>
+     *                     <li>{@link #CLASS_CSNET}</li>
+     *                     <li>{@link #CLASS_CHAOS}</li>
+     *                     <li>{@link #CLASS_HESIOD}</li>
+     *                     <li>{@link #CLASS_NONE}</li>
+     *                     <li>{@link #CLASS_ANY}</li>
+     *                 </ul>
      * @param timeToLive the TTL value of the record
      */
     protected AbstractDnsRecord(CharSequence name, DnsRecordType type, DnsClass dnsClass, long timeToLive) {
@@ -74,31 +71,9 @@ public abstract class AbstractDnsRecord implements DnsRecord {
 
     protected AbstractDnsRecord(CharSequence name, DnsRecordType type, int dnsClass, long timeToLive,
             boolean isUnicastResponse) {
-        if (timeToLive < 0 && type != DnsRecordType.OPT) {
+        if (timeToLive < 0 && !type.isMetaTypeOrQType()) {
             throw new IllegalArgumentException("timeToLive: " + timeToLive + " (expected: >= 0)");
         }
-        // Convert to ASCII which will also check that the length is not too big.
-        // See:
-        //   - https://github.com/netty/netty/issues/4937
-        //   - https://github.com/netty/netty/issues/4935
-        try {
-            // Whether the name is encodable depends on the encoder used, so
-            // this is really the wrong place for this test.  However, to not
-            // regress, this will check overall and label lengths and
-            // leading and trailing hyphens.  IDN would be the wrong thing to
-            // use since mDNS + UTF-8 will tolerate characters IDN will not;
-            // and if encoding with one of the ascii encoders, non-ascii
-            // characters are not allowed at all.  This test will check for
-            // anything that will be illegal by any standard:
-            if (false) {
-                NameCodec.validateName(name, true, true);
-            }
-        } catch (UnmappableCharacterException ex) {
-            throw new IllegalArgumentException(ex);
-        } catch (InvalidDomainNameException ex) {
-            throw new IllegalArgumentException(ex);
-        }
-
         this.name = checkNotNull(name, "name");
         this.type = checkNotNull(type, "type");
         this.dnsClass = dnsClass;
@@ -107,7 +82,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
     }
 
     @Override
-    public boolean isUnicast() {
+    public boolean isUnicastOrCacheFlushRequested() {
         return isUnicastResponse;
     }
 
@@ -175,7 +150,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
                 .append(timeToLive())
                 .append(' ');
 
-        if (isUnicast()) {
+        if (isUnicastOrCacheFlushRequested()) {
             buf.append("(unicast) ");
         }
 

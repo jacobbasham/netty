@@ -74,6 +74,6 @@ public class DefaultDnsPtrRecord extends AbstractDnsRecord implements DnsPtrReco
     @Override
     public DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass) {
         return new DefaultDnsPtrRecord(name(), DnsClass.valueOf(dnsClass),
-                timeToLive, hostname, isUnicast());
+                timeToLive, hostname, isUnicastOrCacheFlushRequested());
     }
 }

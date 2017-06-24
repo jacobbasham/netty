@@ -16,10 +16,12 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.util.ReferenceCounted;
+import io.netty.util.internal.UnstableApi;
 
 /**
  * A DNS response message.
  */
+@UnstableApi
 public interface DnsResponse<M extends ReferenceCounted & DnsResponse> extends DnsMessage<M> {
 
     /**

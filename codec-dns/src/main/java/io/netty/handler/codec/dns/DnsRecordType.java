@@ -336,7 +336,7 @@ public final class DnsRecordType implements Comparable<DnsRecordType> {
         BY_NAME = new HashMap<String, DnsRecordType>(all.length);
         BY_TYPE = new IntObjectHashMap<DnsRecordType>(all.length);
 
-        for (DnsRecordType type : all) {
+        for (DnsRecordType type: all) {
             BY_NAME.put(type.name(), type);
             BY_TYPE.put(type.intValue(), type);
         }

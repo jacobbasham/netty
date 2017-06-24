@@ -68,7 +68,7 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
 
     protected void encodeDnsClass(DnsRecord record, ByteBuf into) {
         int dnsClass = record.dnsClassValue();
-        if (mdns && record.isUnicast()) {
+        if (mdns && record.isUnicastOrCacheFlushRequested()) {
             dnsClass |= DefaultDnsRecordDecoder.MDNS_UNICAST_RESPONSE_BIT;
         }
         into.writeShort(dnsClass);

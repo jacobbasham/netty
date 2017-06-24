@@ -156,8 +156,8 @@ public class DnsMessageEncoderTest {
 
         assertEquals("foo.com", question.name().toString());
 
-        assertTrue(question.isUnicast());
-        assertTrue(record.isUnicast());
+        assertTrue(question.isUnicastOrCacheFlushRequested());
+        assertTrue(record.isUnicastOrCacheFlushRequested());
 
         assertEquals(DnsClass.IN, question.dnsClass());
         assertEquals(DnsRecordType.A, question.type());
@@ -178,8 +178,8 @@ public class DnsMessageEncoderTest {
         decoded = nonMdnsDec.decode(encoded, SENDER, RECIPIENT);
         question = (DnsQuestion) decoded.recordAt(DnsSection.QUESTION);
         record = decoded.recordAt(DnsSection.ANSWER);
-        assertFalse(question.isUnicast());
-        assertFalse(record.isUnicast());
+        assertFalse(question.isUnicastOrCacheFlushRequested());
+        assertFalse(record.isUnicastOrCacheFlushRequested());
 
         // And make sure these aren't set if they aren't actually present
         // when we ARE using MDNS-enabled encoders and decoders
@@ -218,8 +218,8 @@ public class DnsMessageEncoderTest {
         assertTrue(decoded.flags().contains(DnsMessageFlags.RECURSION_AVAILABLE));
         assertTrue(decoded.flags().contains(DnsMessageFlags.RECURSION_DESIRED));
 
-        assertFalse(question.isUnicast());
-        assertFalse(record.isUnicast());
+        assertFalse(question.isUnicastOrCacheFlushRequested());
+        assertFalse(record.isUnicastOrCacheFlushRequested());
 
         // And make sure we can encode unicode if we built an encoder with
         // mDNS on
@@ -250,8 +250,8 @@ public class DnsMessageEncoderTest {
 
         assertEquals(name, question.name());
         assertEquals(name, record.name());
-        assertTrue(question.isUnicast());
-        assertTrue(record.isUnicast());
+        assertTrue(question.isUnicastOrCacheFlushRequested());
+        assertTrue(record.isUnicastOrCacheFlushRequested());
         assertFalse(decoded.flags().contains(DnsMessageFlags.AUTHORITATIVE_ANSWER));
         assertTrue("Response decoder should automatically set IS_REPLY on responses",
                 decoded.flags().contains(DnsMessageFlags.IS_REPLY));

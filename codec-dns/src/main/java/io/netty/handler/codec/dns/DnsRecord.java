@@ -79,10 +79,13 @@ public interface DnsRecord {
     DnsRecord withTimeToLiveAndDnsClass(long timeToLive, int dnsClass);
 
     /**
-     * <strong>mDNS only</strong> For responses, whether or not
-     * this is a unicast DNS unicast response;  for questions, whether or
-     * not a unicast response is preferred.
+     * <strong>mDNS only</strong> For questions, whether or not
+     * a unicast DNS response is requested;  for responses, whether or
+     * not clients are requested to flush their caches of similar messages.
+     * <p>
+     * Unless encoded using an mDNS-aware encoder, this value will not be written;
+     * unless decoded using an mDNS-aware decoder, this value will always be
+     * false.
      */
-    boolean isUnicast();
-
+    boolean isUnicastOrCacheFlushRequested();
 }
