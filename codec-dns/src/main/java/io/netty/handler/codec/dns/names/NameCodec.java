@@ -20,6 +20,7 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.dns.DnsDecoderException;
 import io.netty.handler.codec.dns.DnsResponseCode;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.CASE_CONVERSION;
 import static io.netty.handler.codec.dns.names.NameCodecFeature.COMPRESSION;
 import static io.netty.handler.codec.dns.names.NameCodecFeature.MDNS_UTF_8;
 import static io.netty.handler.codec.dns.names.NameCodecFeature.PUNYCODE;
@@ -27,87 +28,100 @@ import static io.netty.handler.codec.dns.names.NameCodecFeature.READ_TRAILING_DO
 import static io.netty.handler.codec.dns.names.NameCodecFeature.WRITE_TRAILING_DOT;
 import io.netty.util.AsciiString;
 import io.netty.util.CharsetUtil;
+import static io.netty.util.CharsetUtil.UTF_8;
+import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import io.netty.util.internal.UnstableApi;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.UnmappableCharacterException;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.Set;
 
 /**
- * Reads and writes DNS names optionally using pointer compression and/or
- * punycode.
+ * Reads and writes DNS names optionally using pointer compression and/or punycode.
  * <p>
- * Writers with and without pointer compression are supported; generally the
- * compressing version should be used unless you are debugging data on the wire.
+ * Writers with and without pointer compression are supported; generally the compressing version should be used unless
+ * you are debugging data on the wire.
  * <p>
- * The basic (no compression) NameWriter is stateless; the compressing
- * NameWriter needs its state cleared after use; NameCodec implements
- * AutoCloseable so it can be used in a try-with-resources structure.
+ * The basic (no compression) NameWriter is stateless; the compressing NameWriter needs its state cleared after use;
+ * NameCodec implements AutoCloseable so it can be used in a try-with-resources structure.
  * <p>
- * NameCodec reads and writes <code>CharSequence</code>. In the case of
- * non-punycode codecs, the return values will likely be
- * <code>AsciiString</code>, using 8-bit internal data structures instead of
- * Java's two-byte chars. Punycode-supporting encoders use String.
+ * NameCodec reads and writes <code>CharSequence</code>. In the case of non-punycode codecs, the return values will
+ * likely be <code>AsciiString</code>, using 8-bit internal data structures instead of Java's two-byte chars.
+ * Punycode-supporting encoders use String.
  * <p>
- * The choice of what to use is based on your application - for example, if you
- * are storing a lot of DNS records in memory, you are better off storing them
- * in un-decoded punycode at 8 bits per character than decoding punycode to
- * 16-bit characters (the results will look the same on the wire either way). On
- * the other hand, if you are displaying them in a UI, full unicode is likely
- * what you want.
+ * The choice of what to use is based on your application - for example, if you are storing a lot of DNS records in
+ * memory, you are better off storing them in un-decoded punycode at 8 bits per character than decoding punycode to
+ * 16-bit characters (the results will look the same on the wire either way). On the other hand, if you are displaying
+ * them in a UI, full unicode is likely what you want.
  * <p>
- * The {@code WRITE_TRAILING_DOT} feature is worth being careful with - it is
- * handy to <i>read</i> names without the trailing dot, but if you disable
- * writing the trailing dot for data on the wire, you will generate invalid
- * packets.
+ * The {@code WRITE_TRAILING_DOT} feature is worth being careful with - it is handy to <i>read</i> names without the
+ * trailing dot, but if you disable writing the trailing dot for data on the wire, you will generate invalid packets.
+ * <p>
+ * Note:  <i>All</i> NameCodec instances support <i>reading</i> DNS pointer compression, regardless of the
+ * compression setting they use for writing.
  */
 @UnstableApi
 public abstract class NameCodec implements AutoCloseable {
 
     static final AsciiString ROOT = new AsciiString(".");
     static final NameCodec DEFAULT = new NonCompressingNameCodec(false, true);
-    static final NameCodec DEFAULT_TRAILING_DOT = new NonCompressingNameCodec(true, true);
     static final CharsetEncoder ASCII_ENCODER = CharsetUtil.US_ASCII.newEncoder();
-//    static final Utf8NonCompressingCodec MDNS_CODEC = new Utf8NonCompressingCodec();
+    static NameCodecFactory DEFAULT_FACTORY;
 
     /**
-     * Get a one-off NameCodec that has the supplied list of features. Passing
-     * nothing gets you a non-compression-supporting, ASCII-only NameCodec.
+     * Get a NameCodec that has the supplied list of features. Passing nothing gets you a
+     * non-compression-supporting, ASCII-only NameCodec.
      *
      * @param features The features you need.
      * @return A codec
      */
     public static NameCodec get(NameCodecFeature... features) {
-        boolean compression = false;
-        boolean punycode = false;
-        boolean readTrailingDot = false;
-        boolean writeTrailingDot = false;
-        boolean utf8 = false;
+        Set<NameCodecFeature> feat = NameCodecFeature.validate(features);
+        return safeGet(feat);
+    }
+
+    /**
+     * Get a NameCodec that has the supplied list of features. Passing nothing gets you a
+     * non-compression-supporting, ASCII-only NameCodec that <i>DOES NOT</i> write
+     * trailing dots (required for valid wire packets).
+     *
+     * @param features The features you need.
+     * @return A codec
+     */
+    public static NameCodec get(Set<NameCodecFeature> features) {
         NameCodecFeature.validate(features);
-        for (NameCodecFeature f : features) {
-            if (f == PUNYCODE) {
-                punycode = true;
+        return safeGet(features);
+    }
+
+    private static NameCodec safeGet(Set<NameCodecFeature> features) {
+        // Assume the feature set is already validated
+        NameCodec result;
+        if (features.contains(MDNS_UTF_8)) {
+            if (features.contains(COMPRESSION)) {
+                result = new Utf8CompressingCodec(features.contains(READ_TRAILING_DOT),
+                        features.contains(WRITE_TRAILING_DOT));
+            } else {
+                result = new Utf8NonCompressingCodec(features.contains(READ_TRAILING_DOT),
+                        features.contains(WRITE_TRAILING_DOT));
             }
-            if (f == COMPRESSION) {
-                compression = true;
+            if (features.contains(CASE_CONVERSION)) {
+                result = result.toCaseConvertingNameCodec();
             }
-            if (f == READ_TRAILING_DOT) {
-                readTrailingDot = true;
+        } else {
+            if (features.contains(COMPRESSION)) {
+                result = new CompressingNameCodec(features.contains(READ_TRAILING_DOT),
+                        features.contains(WRITE_TRAILING_DOT));
+            } else {
+                result = new NonCompressingNameCodec(features.contains(READ_TRAILING_DOT),
+                        features.contains(WRITE_TRAILING_DOT));
             }
-            if (f == WRITE_TRAILING_DOT) {
-                writeTrailingDot = true;
+            if (features.contains(PUNYCODE)) {
+                result = result.toPunycodeNameCodec();
             }
-            if (f == MDNS_UTF_8) {
-                utf8 = true;
+            if (features.contains(CASE_CONVERSION)) {
+                result = result.toCaseConvertingNameCodec();
             }
-        }
-        if (utf8) {
-            return compression ? new Utf8CompressingCodec(readTrailingDot, writeTrailingDot)
-                    : new Utf8NonCompressingCodec(readTrailingDot, writeTrailingDot);
-        }
-        NameCodec result = compression ? new CompressingNameCodec(readTrailingDot,
-                writeTrailingDot) : readTrailingDot ? DEFAULT_TRAILING_DOT : DEFAULT;
-        if (punycode) {
-            result = new PunycodeNameCodec(result);
         }
         return result;
     }
@@ -119,43 +133,51 @@ public abstract class NameCodec implements AutoCloseable {
      * @return A factory for name codecs
      */
     public static NameCodecFactory factory(NameCodecFeature... features) {
-        Set<NameCodecFeature> all = NameCodecFeature.validate(features);
-        NameCodecFactory result = all.contains(MDNS_UTF_8)
-                ? new CachingNameCodecFactory(new TrivialUtf8NameCodecFactory(
-                        all.contains(COMPRESSION), all.contains(READ_TRAILING_DOT),
-                        all.contains(WRITE_TRAILING_DOT)))
-                : all.contains(COMPRESSION)
-                ? new CompressingNameCodecFactory(all.contains(READ_TRAILING_DOT),
-                        all.contains(WRITE_TRAILING_DOT))
-                : new UncompressedNameCodecFactory(all.contains(READ_TRAILING_DOT),
-                        all.contains(WRITE_TRAILING_DOT));
-        if (all.contains(PUNYCODE)) { // if UTF-8 we will already have thrown in validate()
-            result = new PunycodeNameCodecFactory(result);
-        }
-        return result;
+        checkNotNull(features, "features");
+        Set<NameCodecFeature> featureSet = EnumSet.noneOf(NameCodecFeature.class);
+        featureSet.addAll(Arrays.asList(features));
+        return factory(featureSet);
     }
 
-    static final class TrivialUtf8NameCodecFactory implements NameCodecFactory {
+    /**
+     * Get a factory for NameCodecs that have the feature list passed here.
+     *
+     * @param features The features
+     * @return A factory for name codecs
+     */
+    public static NameCodecFactory factory(Set<NameCodecFeature> features) {
+        checkNotNull(features, "features");
+        if (features.size() == 2 && features.contains(WRITE_TRAILING_DOT) && features.contains(COMPRESSION)) {
+            return compressingFactory();
+        }
+        NameCodecFeature.validate(features);
+        return new CachingNameCodecFactory(new DefaultNameCodecFactory(features));
+    }
 
-        private final boolean compression;
-        private final boolean readTrailingDot;
-        private final boolean writeTrailingDot;
-
-        public TrivialUtf8NameCodecFactory(boolean compression, boolean readTrailingDot, boolean writeTrailingDot) {
-            this.compression = compression;
-            this.readTrailingDot = readTrailingDot;
-            this.writeTrailingDot = writeTrailingDot;
+    private static final class DefaultNameCodecFactory implements NameCodecFactory {
+        private final NameCodecFeature[] features;
+        private final NameCodec readInstance;
+        private final NameCodec writeInstance;
+        public DefaultNameCodecFactory(Set<NameCodecFeature> features) {
+            readInstance = NameCodec.get(features);
+            boolean isStatefulCodec = readInstance.writesWithPointerCompression();
+            if (!isStatefulCodec) {
+                writeInstance = readInstance;
+                this.features = null;
+            } else {
+                writeInstance = null;
+                this.features = features.toArray(new NameCodecFeature[features.size()]);
+            }
         }
 
         @Override
         public NameCodec getForRead() {
-            return compression ? new Utf8CompressingCodec(readTrailingDot, writeTrailingDot)
-                    : new Utf8NonCompressingCodec(readTrailingDot, writeTrailingDot);
+            return readInstance;
         }
 
         @Override
         public NameCodec getForWrite() {
-            return getForRead();
+            return writeInstance == null ? NameCodec.get(features) : writeInstance;
         }
     }
 
@@ -164,14 +186,21 @@ public abstract class NameCodec implements AutoCloseable {
     }
 
     /**
-     * Return a wrapper for this codec which supports punycode encoding of
-     * unicode characters (non-ascii).
+     * Return a wrapper for this codec which supports punycode encoding of unicode characters (non-ascii).
      *
-     * @return A codec that converts/unconverts to/from punycode then calls this
-     * one.
+     * @return A codec that converts/unconverts to/from punycode then calls this one.
      */
-    public NameCodec toPunycodeNameCodec() {
-        return this instanceof PunycodeNameCodec ? this : new PunycodeNameCodec(this);
+    public final NameCodec toPunycodeNameCodec() {
+        Set<NameCodecFeature> features = NameCodecFeature.featuresOf(this);
+        if (features.contains(PUNYCODE)) {
+            return this;
+        }
+        if (supportsUnicode() || features.contains(MDNS_UTF_8)) {
+            throw new UnsupportedOperationException("This codec is an MDNS_UTF_8 codec. "
+                    + "Cannot support that and PUNYCODE at the same time - they are both "
+                    + "incompatible ways of encoding non-ascii characters.");
+        }
+        return new PunycodeNameCodec(this);
     }
 
     /**
@@ -179,10 +208,9 @@ public abstract class NameCodec implements AutoCloseable {
      *
      * @param name The name
      * @param into The buffer
-     * @throws UnmappableCharacterException If a character is invalid and this
-     * codec does not perform conversion
-     * @throws io.netty.handler.codec.dns.InvalidDomainNameException If the
-     * result of encoding violates the rules of domain name encoding.
+     * @throws UnmappableCharacterException If a character is invalid and this codec does not perform conversion
+     * @throws io.netty.handler.codec.dns.InvalidDomainNameException If the result of encoding violates the rules of
+     * domain name encoding according to the features of this codec.
      */
     public abstract void writeName(CharSequence name, ByteBuf into) throws UnmappableCharacterException,
             InvalidDomainNameException;
@@ -192,22 +220,23 @@ public abstract class NameCodec implements AutoCloseable {
      *
      * @return A non-compressing NameCodec
      */
-    public static NameCodec basicNameCodec() {
+    public static NameCodec nonCompressingNameCodec() {
         return DEFAULT;
     }
 
-    public static NameCodecFactory mdnsNameCodecFactory() {
-        return new CachingNameCodecFactory(new TrivialUtf8NameCodecFactory(true, false, true));
-    }
-
+    /**
+     * Get a NameCodec that reads and writes mDNS's UTF8 encoding for names (not compatible
+     * with traditional unicast DNS servers or clients, but used by Avahi, Rondezvous and similar).
+     *
+     * @return A codec
+     */
     public static NameCodec mdnsNameCodec() {
-        return new Utf8CompressingCodec(false, true);
+        return new Utf8CompressingCodec(false, true).toCaseConvertingNameCodec();
     }
 
     /**
-     * Get a NameCodec which will compress names according to the RFC. Note that
-     * the returned NameCodec is stateful; its <code>close()</code> method
-     * should be called if it is to be reused against a different buffer.
+     * Get a NameCodec which will compress names according to the RFC. Note that the returned NameCodec is stateful;
+     * its <code>close()</code> method should be called if it is to be reused against a different buffer.
      *
      * @return A compressing NameCodec
      */
@@ -216,7 +245,9 @@ public abstract class NameCodec implements AutoCloseable {
     }
 
     /**
-     * Clear any state associated with this NameCodec, if it is to be reused.
+     * Clear any state associated with this NameCodec, if it is to be reused.  It is important to
+     * call this on instances used for writing, otherwise subsequent writes into new buffers may contain
+     * pointers to data that is not present.
      */
     @Override
     public void close() {
@@ -229,27 +260,29 @@ public abstract class NameCodec implements AutoCloseable {
      * @return A factory
      */
     public static NameCodecFactory compressingFactory() {
-        return new CompressingNameCodecFactory(false, true);
+        return DEFAULT_FACTORY == null
+                ? DEFAULT_FACTORY = new CachingNameCodecFactory(
+                        new DefaultNameCodecFactory(EnumSet.of(COMPRESSION, WRITE_TRAILING_DOT)))
+                : DEFAULT_FACTORY;
     }
 
     /**
-     * Get a factory for name codecs with compression.
+     * Get a factory for name codecs which do not use name pointer compression (useful for
+     * debugging, but results in bigger packets).
      *
      * @return A factory
      */
-    public static NameCodecFactory standardFactory() {
-        return new UncompressedNameCodecFactory(false, true);
+    public static NameCodecFactory nonCompressingFactory() {
+        return new CachingNameCodecFactory(new DefaultNameCodecFactory(EnumSet.of(WRITE_TRAILING_DOT)));
     }
 
     /**
-     * Read a name from a buffer. Assumes the buffer is positioned at the
-     * initial byte of a name (which will be a label length). Retrieves a domain
-     * name given a buffer containing a DNS packet. If the name contains a
-     * pointer, the position of the buffer will be set to directly after the
-     * pointer's index after the name has been read.
+     * Read a name from a buffer. Assumes the buffer is positioned at the initial byte of a name (which will be a label
+     * length). Retrieves a domain name given a buffer containing a DNS packet. If the name contains a pointer, the
+     * position of the buffer will be set to directly after the pointer's index after the name has been read.
      * <p>
-     * The default implementation can decode DNS pointers, but does not
-     * interpret punycode encoding of non-ascii characters.
+     * The default implementation can decode DNS pointers, but does not interpret punycode encoding of non-ascii
+     * characters.
      *
      * @param in the byte buffer containing the DNS packet
      * @return the domain name for an entry
@@ -261,11 +294,10 @@ public abstract class NameCodec implements AutoCloseable {
     }
 
     /**
-     * Convenience method to read a name from a buffer. Assumes the buffer is
-     * positioned at the initial byte of a name (which will be a label length).
-     * Retrieves a domain name given a buffer containing a DNS packet. If the
-     * name contains a pointer, the position of the buffer will be set to
-     * directly after the pointer's index after the name has been read.
+     * Convenience method to read a name from a buffer. Assumes the buffer is positioned at the initial byte of a name
+     * (which will be a label length). Retrieves a domain name given a buffer containing a DNS packet. If the name
+     * contains a pointer, the position of the buffer will be set to directly after the pointer's index after the name
+     * has been read.
      *
      * @param in the byte buffer containing the DNS packet
      * @return the domain name for an entry
@@ -374,25 +406,36 @@ public abstract class NameCodec implements AutoCloseable {
 
     protected CharSequence toDomainName(byte[] nameAsBytes, int start, int length) {
         if (supportsUnicode()) {
-            return new String(nameAsBytes, start, length);
+            return new String(nameAsBytes, start, length, UTF_8);
         } else {
             return new AsciiString(nameAsBytes, start, length, false);
         }
+    }
+
+    public NameCodec toCaseConvertingNameCodec() {
+        return this.convertsCase() ? this : new CaseConvertingNameCodecWrapper(this);
     }
 
     public boolean allowsWhitespace() {
         return false;
     }
 
+    public boolean convertsCase() {
+        return false;
+    }
+
+    public abstract boolean readsTrailingDot();
+
+    public abstract boolean writesTrailingDot();
+
+    public abstract boolean writesWithPointerCompression();
+
     /**
-     * Check that the passed name can actually be encoded into ASCII, is legal
-     * length for a DNS name, etc.
+     * Check that the passed name can actually be encoded into ASCII, is legal length for a DNS name, etc.
      *
      * @param name The name
-     * @throws UnencodableCharactersException If the name contains invalid
-     * characters
-     * @throws InvalidDomainNameException If the name structurally cannot be a
-     * spec-compliant domain name
+     * @throws UnencodableCharactersException If the name contains invalid characters
+     * @throws InvalidDomainNameException If the name structurally cannot be a spec-compliant domain name
      */
     protected void checkName(CharSequence name) throws UnmappableCharacterException,
             InvalidDomainNameException {
@@ -400,20 +443,16 @@ public abstract class NameCodec implements AutoCloseable {
     }
 
     /**
-     * Check that the passed name can actually be encoded into ASCII, is legal
-     * length for a DNS name, etc. Note that this does not test for IDN illegal
-     * characters (you might be using mDNS UTF-8 which has fewer restrictions),
-     * but attempting to encode illegal characters with punycode will fail when
-     * you call writeName().
+     * Check that the passed name can actually be encoded into ASCII, is legal length for a DNS name, etc. Note that
+     * this does not test for IDN illegal characters (you might be using mDNS UTF-8 which has fewer restrictions), but
+     * attempting to encode illegal characters with punycode will fail when you call writeName().
      *
      * @param name The name
-     * @param unicode If true, don't fail on non-ascii characters
-     * @throws UnencodableCharactersException If the name contains invalid
-     * characters
-     * @throws InvalidDomainNameException If the name structurally cannot be a
-     * spec-compliant domain name
+     * @param unicodeOk If true, don't fail on non-ascii characters
+     * @throws UnencodableCharactersException If the name contains invalid characters
+     * @throws InvalidDomainNameException If the name structurally cannot be a spec-compliant domain name
      */
-    public static void validateName(CharSequence name, boolean unicode,
+    public static void validateName(CharSequence name, boolean unicodeOk,
             boolean whitspaceOk) throws UnmappableCharacterException,
             InvalidDomainNameException {
 
@@ -421,7 +460,7 @@ public abstract class NameCodec implements AutoCloseable {
         if (length > 253) {
             throw new InvalidDomainNameException(name, "Name length must be <= 253");
         }
-        if (!unicode && !ASCII_ENCODER.canEncode(name)) {
+        if (!unicodeOk && !ASCII_ENCODER.canEncode(name)) {
             throw new UnencodableCharactersException(name);
         }
         int lastLabelStart = 0;
@@ -432,7 +471,7 @@ public abstract class NameCodec implements AutoCloseable {
                         + "illegal whitespace '" + (int) c
                         + "' at " + i + ": '" + name + "'");
             }
-            if (!legalCharacter(c, i - lastLabelStart, length, unicode)) {
+            if (!legalCharacter(c, i - lastLabelStart, length, unicodeOk)) {
                 throw new InvalidDomainNameException(name, "Name contains illegal character '" + c
                         + "' at " + i + ": '" + name + "'");
             }

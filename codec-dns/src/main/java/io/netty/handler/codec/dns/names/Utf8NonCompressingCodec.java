@@ -17,8 +17,6 @@ package io.netty.handler.codec.dns.names;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
-import io.netty.handler.codec.dns.DnsDecoderException;
-import io.netty.util.AsciiString;
 
 /**
  * UTF-8 name codec for mDNS, which uses plain UTF-8 for names with no
@@ -26,7 +24,7 @@ import io.netty.util.AsciiString;
  */
 final class Utf8NonCompressingCodec extends NonCompressingNameCodec implements NameCodecFactory {
 
-    public Utf8NonCompressingCodec(boolean readTrailingDot, boolean writeTrailingDot) {
+    Utf8NonCompressingCodec(boolean readTrailingDot, boolean writeTrailingDot) {
         super(readTrailingDot, writeTrailingDot);
     }
 
@@ -38,7 +36,12 @@ final class Utf8NonCompressingCodec extends NonCompressingNameCodec implements N
     static void writeUtf8(ByteBuf buf, CharSequence label) {
         int lengthPosition = buf.writerIndex();
         buf.writeByte(0);
-        int bytesWritten = ByteBufUtil.writeUtf8(buf, toLowerCase(label));
+        int bytesWritten = ByteBufUtil.writeUtf8(buf, label);
+        if (bytesWritten > 63) {
+            buf.writerIndex(lengthPosition);
+            throw new InvalidDomainNameException(label,
+                    "Unicode label encodes to > 63 bytes: '" + label + "'");
+        }
         int end = buf.writerIndex();
         buf.writerIndex(lengthPosition);
         buf.writeByte(bytesWritten);
@@ -48,29 +51,6 @@ final class Utf8NonCompressingCodec extends NonCompressingNameCodec implements N
     @Override
     protected void write(ByteBuf buf, CharSequence label, int length) {
         writeUtf8(buf, label);
-    }
-
-    @Override
-    public CharSequence readName(ByteBuf buf) throws DnsDecoderException {
-        if (buf.readableBytes() < 2) {
-            return super.readName(buf);
-        }
-        return toLowerCase(super.readName(buf));
-    }
-
-    @Override
-    public NameCodec toPunycodeNameCodec() {
-        throw new UnsupportedOperationException("MDNS does not support punycode");
-    }
-
-    private static CharSequence toLowerCase(CharSequence seq) {
-        if (seq instanceof String) {
-            return ((String) seq).toLowerCase();
-        } else if (seq instanceof AsciiString) {
-            return ((AsciiString) seq).toLowerCase();
-        } else {
-            return seq.toString().toLowerCase();
-        }
     }
 
     @Override

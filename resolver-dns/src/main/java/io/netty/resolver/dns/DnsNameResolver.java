@@ -29,15 +29,19 @@ import io.netty.channel.ChannelPromise;
 import io.netty.channel.EventLoop;
 import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.socket.DatagramChannel;
+import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.InternetProtocolFamily;
-import io.netty.handler.codec.dns.wire.DatagramDnsQueryEncoder;
+import io.netty.handler.codec.MessageToMessageDecoder;
+import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.handler.codec.dns.DatagramDnsResponse;
-import io.netty.handler.codec.dns.wire.DatagramDnsResponseDecoder;
+import io.netty.handler.codec.dns.DnsQuery;
 import io.netty.handler.codec.dns.DnsQuestion;
 import io.netty.handler.codec.dns.DnsRawRecord;
 import io.netty.handler.codec.dns.DnsRecord;
 import io.netty.handler.codec.dns.DnsRecordType;
 import io.netty.handler.codec.dns.DnsResponse;
+import io.netty.handler.codec.dns.wire.DnsMessageDecoder;
+import io.netty.handler.codec.dns.wire.DnsMessageEncoder;
 import io.netty.resolver.HostsFileEntriesResolver;
 import io.netty.resolver.InetNameResolver;
 import io.netty.resolver.ResolvedAddressTypes;
@@ -63,6 +67,10 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
+import static io.netty.handler.codec.dns.names.NameCodecFeature.COMPRESSION;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.PUNYCODE;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.WRITE_TRAILING_DOT;
 import static io.netty.resolver.dns.DefaultDnsServerAddressStreamProvider.DNS_PORT;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import static io.netty.util.internal.ObjectUtil.checkPositive;
@@ -131,8 +139,13 @@ public class DnsNameResolver extends InetNameResolver {
         DEFAULT_SEARCH_DOMAINS = searchDomains;
     }
 
-    private static final DatagramDnsResponseDecoder DECODER = new DatagramDnsResponseDecoder();
-    private static final DatagramDnsQueryEncoder ENCODER = new DatagramDnsQueryEncoder();
+    MessageToMessageDecoder<DatagramPacket> DECODER = DnsMessageDecoder.builder()
+            .withNameFeatures(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT, PUNYCODE)
+            .buildUdpResponseDecoder();
+    MessageToMessageEncoder<AddressedEnvelope<DnsQuery<?>, InetSocketAddress>> ENCODER
+            = DnsMessageEncoder.builder()
+                    .withNameFeatures(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT, PUNYCODE)
+                    .buildUdpQueryEncoder();
 
     final Future<Channel> channelFuture;
     final DatagramChannel ch;

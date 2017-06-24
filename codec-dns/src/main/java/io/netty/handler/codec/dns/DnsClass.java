@@ -16,13 +16,12 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.util.internal.UnstableApi;
-import java.util.Arrays;
 
 /**
  * DNS record resource class, with defaults for RFC-defined classes.
  */
 @UnstableApi
-public class DnsClass implements Comparable<DnsClass> {
+public final class DnsClass implements Comparable<DnsClass> {
 
     public static final short CLASS_IN = 0x0001;
     public static final short CLASS_CSNET = 0x0002;
@@ -41,44 +40,17 @@ public class DnsClass implements Comparable<DnsClass> {
     private static final DnsClass[] VALUES = new DnsClass[]{IN, CSNET, CHAOS, HESIOD, NONE, ANY};
     private final String name;
 
-    public DnsClass(short value, String name) {
+    private DnsClass(short value, String name) {
         this.value = value;
         this.name = name;
     }
 
-    public final int intValue() {
+    public int intValue() {
         return value & 0xFFFF;
     }
 
-    public final short shortValue() {
+    public short shortValue() {
         return value;
-    }
-
-    /**
-     * Register a new DnsClass. Unlikely to be used unless you are doing
-     * something very unusual (i.e. using DNS protocol to serve some other
-     * need). It is expected that, if this is called at all, it will be called
-     * during application initialization.
-     *
-     * @param nue The new dns class
-     * @throws IllegalArgumentException if the name or int value of the passed
-     * DnsClass matches one already registered.
-     */
-    public static void register(DnsClass nue) {
-        for (DnsClass clazz : VALUES) {
-            if (clazz.intValue() == nue.intValue()) {
-                throw new IllegalArgumentException("Attempt to redefine " + clazz + " int value " + nue.intValue());
-            }
-            if (clazz.name().equals(nue.name())) {
-                if (clazz.intValue() == nue.intValue()) {
-                    throw new IllegalArgumentException("Attempt to redefine " + clazz + " namee " + nue.name());
-                }
-            }
-        }
-        DnsClass[] result = new DnsClass[VALUES.length + 1];
-        System.arraycopy(VALUES, 0, result, 0, VALUES.length);
-        result[result.length - 1] = nue;
-        Arrays.sort(VALUES);
     }
 
     public static DnsClass[] values() {
@@ -87,7 +59,7 @@ public class DnsClass implements Comparable<DnsClass> {
         return result;
     }
 
-    public final String name() {
+    public String name() {
         return name;
     }
 
@@ -126,7 +98,7 @@ public class DnsClass implements Comparable<DnsClass> {
                 return dc;
             }
         }
-        return null;
+        throw new IllegalArgumentException("No known DnsClass named '" + name + "'");
     }
 
     @Override

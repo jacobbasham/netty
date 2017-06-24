@@ -25,23 +25,31 @@ import java.nio.charset.UnmappableCharacterException;
  * NameCodecFactory.getForWrite() is not used to read, and vice-versa. This
  * simply makes an easy-to-have category of bug impossible.
  */
-final class WriteEnforcingCodecWrapper extends NameCodec {
+final class WriteEnforcingCodecWrapper extends NameCodec implements WrapperCodec {
 
     private final NameCodec delegate;
-    private final boolean isWrite;
+    private final boolean writesAllowed;
+    private final CachingNameCodecFactory owner;
+    private final Thread creationThread;
 
-    public WriteEnforcingCodecWrapper(NameCodec delegate, boolean isWrite) {
+    WriteEnforcingCodecWrapper(NameCodec delegate) {
+        this(delegate, false, null);
+    }
+
+    WriteEnforcingCodecWrapper(NameCodec delegate, boolean writesAllowed, CachingNameCodecFactory owner) {
         this.delegate = delegate;
-        this.isWrite = isWrite;
+        this.writesAllowed = writesAllowed;
+        this.owner = owner;
+        creationThread = writesAllowed ? Thread.currentThread() : null;
     }
 
     @Override
     public void writeName(CharSequence name, ByteBuf into)
             throws UnmappableCharacterException, InvalidDomainNameException {
-        if (!isWrite) {
+        if (!writesAllowed) {
             throw new IllegalStateException("This "
                     + StringUtil.simpleClassName(NameCodec.class) + " was obtained from "
-                    + "getForRead() - cannot be used for writing.  Get one from "
+                    + "NameCodecFactory.getForRead() - cannot be used for writing.  Get one from "
                     + "the factory's getForWrite() method instead.");
         }
         delegate.writeName(name, into);
@@ -49,9 +57,9 @@ final class WriteEnforcingCodecWrapper extends NameCodec {
 
     @Override
     public CharSequence readName(ByteBuf in) throws DnsDecoderException {
-        if (isWrite) {
+        if (writesAllowed) {
             throw new IllegalStateException("This " + StringUtil.simpleClassName(NameCodec.class)
-                    + " was obtained from getForRead() - cannot be used for writing. "
+                    + " was obtained from NameCodecFactory.getForRead() - cannot be used for writing. "
                     + "Get one from the factories getForWrite() method" + " instead.");
         }
         return delegate.readName(in);
@@ -60,6 +68,12 @@ final class WriteEnforcingCodecWrapper extends NameCodec {
     @Override
     public void close() {
         delegate.close();
+        // Only write instances are held in a threadlocal in CachingNameCodecFactory
+        // If we are being closed on some random thread, we will wind up in the wrong
+        // slot (and something bad is probably happening)
+        if (owner != null && Thread.currentThread() == creationThread) {
+            owner.onClose(this);
+        }
     }
 
     @Override
@@ -69,12 +83,36 @@ final class WriteEnforcingCodecWrapper extends NameCodec {
 
     @Override
     public String toString() {
-        return "WriteEnforcingCodecWrapper{" + delegate
-                + ", isWrite=" + isWrite + "}";
+        return StringUtil.simpleClassName(this) + "{" + delegate + ", isWriteInstance=" + writesAllowed + "}";
     }
 
     @Override
     public boolean allowsWhitespace() {
         return delegate.allowsWhitespace();
+    }
+
+    @Override
+    public boolean convertsCase() {
+        return delegate.convertsCase();
+    }
+
+    @Override
+    public boolean readsTrailingDot() {
+        return delegate.readsTrailingDot();
+    }
+
+    @Override
+    public boolean writesTrailingDot() {
+        return delegate.writesTrailingDot();
+    }
+
+    @Override
+    public boolean writesWithPointerCompression() {
+        return delegate.writesWithPointerCompression();
+    }
+
+    @Override
+    public NameCodec delegate() {
+        return delegate;
     }
 }

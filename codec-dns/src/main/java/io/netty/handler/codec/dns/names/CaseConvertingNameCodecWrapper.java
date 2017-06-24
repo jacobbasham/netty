@@ -17,41 +17,42 @@ package io.netty.handler.codec.dns.names;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.dns.DnsDecoderException;
+import io.netty.util.AsciiString;
 import io.netty.util.internal.StringUtil;
-import java.net.IDN;
 import java.nio.charset.UnmappableCharacterException;
 
-/**
- * NameCodec which wraps another and decodes ASCII-punycode to unicode.
- */
-final class PunycodeNameCodec extends NameCodec implements WrapperCodec {
+final class CaseConvertingNameCodecWrapper extends NameCodec implements WrapperCodec {
 
     private final NameCodec delegate;
 
-    PunycodeNameCodec(NameCodec delegate) {
+    CaseConvertingNameCodecWrapper(NameCodec delegate) {
         this.delegate = delegate;
+    }
+
+    private static CharSequence toLowerCase(CharSequence seq) {
+        if (seq instanceof String) {
+            return ((String) seq).toLowerCase();
+        } else if (seq instanceof AsciiString) {
+            return ((AsciiString) seq).toLowerCase();
+        } else {
+            return seq.toString().toLowerCase();
+        }
+    }
+
+    @Override
+    public void writeName(CharSequence name, ByteBuf into) throws UnmappableCharacterException,
+            InvalidDomainNameException {
+        delegate.writeName(toLowerCase(name), into);
+    }
+
+    @Override
+    public boolean allowsWhitespace() {
+        return delegate.allowsWhitespace();
     }
 
     @Override
     public CharSequence readName(ByteBuf in) throws DnsDecoderException {
-        CharSequence ascii = delegate.readName(in);
-        String result = IDN.toUnicode(ascii.toString());
-        return result;
-    }
-
-    @Override
-    public void writeName(CharSequence name, ByteBuf into) throws
-            UnmappableCharacterException, InvalidDomainNameException {
-        if (name.toString().contains("?")) {
-            throw new IllegalArgumentException("Missing non-ascii chars? : "
-                    + name + " in a " + name.getClass().getName());
-        }
-        try {
-            String ascii = IDN.toASCII(name.toString());
-            delegate.writeName(ascii, into);
-        } catch (IllegalArgumentException ex) {
-            throw new InvalidDomainNameException(name, "IDN failed", ex);
-        }
+        return toLowerCase(delegate.readName(in));
     }
 
     @Override
@@ -61,7 +62,7 @@ final class PunycodeNameCodec extends NameCodec implements WrapperCodec {
 
     @Override
     public boolean supportsUnicode() {
-        return true;
+        return delegate.supportsUnicode();
     }
 
     @Override
@@ -71,7 +72,7 @@ final class PunycodeNameCodec extends NameCodec implements WrapperCodec {
 
     @Override
     public boolean convertsCase() {
-        return delegate.convertsCase();
+        return true;
     }
 
     @Override

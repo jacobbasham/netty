@@ -128,8 +128,9 @@ public class DefaultDnsRecordDecoder implements DnsRecordDecoder {
         }
         return new DefaultDnsRawRecord(
                 name, type, dnsClass, timeToLive,
-                in.retainedDuplicate().slice(in.readerIndex(), in.readableBytes())
-                        .retain(),
+                in.retainedDuplicate().setIndex(in.readerIndex(), in.readerIndex() + length),
+//                in.slice(in.readerIndex(), length).retainedDuplicate()
+//                        .retain(),
                 isUnicastResponse
         );
     }

@@ -151,5 +151,89 @@ final class DnsMessageUtil {
         }
     }
 
+    public static void arrayToHexWithChars(StringBuilder into, byte[] b) {
+        for (int i = 0; i < b.length; i++) {
+            byte currentByte = b[i];
+            if (i > 0) {
+                into.append(' ');
+            }
+            appendFixedLengthHexOrChar(currentByte, into);
+        }
+    }
+
+    private static void appendFixedLengthHexOrChar(byte value, StringBuilder into) {
+        if (isPrintableChar(value)) {
+            appendChar(value, into);
+        } else {
+            appendHex(value, into);
+        }
+    }
+
+    public static void appendHex(byte value, StringBuilder into) {
+        String hx = Integer.toHexString(value & 0xFF);
+        into.append("0x");
+        if (hx.length() == 1) {
+            into.append('0');
+        }
+        into.append(hx);
+    }
+
+    private static void appendChar(byte value, StringBuilder into) {
+        into.append('\'').append((char) value & 0xFF).append('\'');
+    }
+
+    private static boolean isPrintableChar(byte value) {
+        return (value >= '0' && value <= '9')
+                || (value >= 'A' && value <= 'Z')
+                || (value >= 'a' && value <= 'z');
+    }
+
+    /**
+     * Generate a usable hash code for a DNS name, which is the same
+     * with or without trailing dots.
+     */
+    public static int nameHashCode(CharSequence name) {
+        int result = 0;
+        for (int i = name.length() - 1; i >= 0; i--) {
+           char c = name.charAt(i);
+           if ('.' == c) {
+               continue;
+           }
+           result = 31 * result + Character.toLowerCase(c);
+        }
+        return result;
+    }
+
+    /**
+     * Compare two DNS names for equality, ignoring trailing dots.
+     */
+    public static boolean namesEqual(CharSequence a, CharSequence b) {
+        int endA = a.length();
+        int endB = b.length();
+        while (endA > 0) {
+            if (a.charAt(endA - 1) != '.') {
+                break;
+            }
+            endA--;
+        }
+        while (endB > 0) {
+            if (b.charAt(endB - 1) != '.') {
+                break;
+            }
+            endB--;
+        }
+        if (endB != endA) {
+            return false;
+        }
+        for (int i = 0; i < endA; i++) {
+            char ca = Character.toLowerCase(a.charAt(i));
+            char cb = Character.toLowerCase(a.charAt(i));
+            if (ca != cb) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private DnsMessageUtil() { }
 }

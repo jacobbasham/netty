@@ -30,6 +30,12 @@ final class UnencodableCharactersException extends UnmappableCharacterException 
         this.name = name;
     }
 
+    UnencodableCharactersException(CharSequence name, Throwable cause) {
+        super(name.length());
+        initCause(cause);
+        this.name = name;
+    }
+
     @Override
     public String getMessage() {
         return "Name contains non-ascii character - convert it to punycode first: '" + name + "'";

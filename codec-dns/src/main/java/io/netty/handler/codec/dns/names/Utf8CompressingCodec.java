@@ -18,7 +18,6 @@ package io.netty.handler.codec.dns.names;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.dns.DnsDecoderException;
 import static io.netty.handler.codec.dns.names.Utf8NonCompressingCodec.writeUtf8;
-import io.netty.util.AsciiString;
 
 /**
  * UTF-8 name codec for mDNS, which uses plain UTF-8 for names with no
@@ -26,7 +25,7 @@ import io.netty.util.AsciiString;
  */
 final class Utf8CompressingCodec extends CompressingNameCodec implements NameCodecFactory {
 
-    public Utf8CompressingCodec(boolean readTrailingDot, boolean writeTrailingDot) {
+    Utf8CompressingCodec(boolean readTrailingDot, boolean writeTrailingDot) {
         super(readTrailingDot, writeTrailingDot);
     }
 
@@ -42,25 +41,7 @@ final class Utf8CompressingCodec extends CompressingNameCodec implements NameCod
 
     @Override
     public CharSequence readName(ByteBuf buf) throws DnsDecoderException {
-        if (buf.readableBytes() < 2) {
-            return super.readName(buf);
-        }
-        return toLowerCase(super.readName(buf));
-    }
-
-    @Override
-    public NameCodec toPunycodeNameCodec() {
-        throw new UnsupportedOperationException("MDNS does not support punycode");
-    }
-
-    private CharSequence toLowerCase(CharSequence seq) {
-        if (seq instanceof String) {
-            return ((String) seq).toLowerCase();
-        } else if (seq instanceof AsciiString) {
-            return ((AsciiString) seq).toLowerCase();
-        } else {
-            return seq.toString().toLowerCase();
-        }
+        return super.readName(buf);
     }
 
     @Override

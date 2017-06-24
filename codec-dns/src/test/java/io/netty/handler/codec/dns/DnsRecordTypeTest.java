@@ -50,7 +50,7 @@ public class DnsRecordTypeTest {
     @Test
     public void testHashCode() throws Exception {
         for (DnsRecordType t : allTypes()) {
-            assertEquals(t.intValue(), t.hashCode());
+            assertEquals(t.intValue() * 73, t.hashCode());
         }
     }
 
@@ -74,10 +74,11 @@ public class DnsRecordTypeTest {
     @Test
     public void testFind() throws Exception {
         for (DnsRecordType t : allTypes()) {
+            assertNotNull(t);
             DnsRecordType found = DnsRecordType.valueOf(t.intValue());
-            assertSame(t, found);
+            assertSame("Did not find " + t.name() + " (" + t.intValue() + ")", t, found);
             found = DnsRecordType.valueOf(t.name());
-            assertSame(t.name(), t, found);
+            assertSame("Did not find " + t.name() + " (" + t.intValue() + ")", t, found);
         }
     }
 }

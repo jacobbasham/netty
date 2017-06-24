@@ -16,7 +16,8 @@
 package io.netty.handler.codec.dns;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.util.internal.StringUtil;
+import static io.netty.handler.codec.dns.DnsMessageUtil.arrayToHexWithChars;
+import static io.netty.handler.codec.dns.DnsRecordType.OPT;
 import io.netty.util.internal.UnstableApi;
 
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
@@ -61,6 +62,7 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
         super(name, type, dnsClass, timeToLive);
         this.content = checkNotNull(content, "content");
     }
+
     /**
      * Creates a new record.
      *
@@ -172,29 +174,18 @@ public class DefaultDnsRawRecord extends AbstractDnsRecord implements DnsRawReco
 
     @Override
     public String toString() {
-        final StringBuilder buf = new StringBuilder(64).append(StringUtil.simpleClassName(this)).append('(');
-        final DnsRecordType type = type();
-        if (type != DnsRecordType.OPT) {
-            buf.append(name().length() == 0 ? "<root>" : name())
-               .append(' ')
-               .append(timeToLive())
-               .append(' ');
+        final StringBuilder result = new StringBuilder(64).append(name()).append('\t')
+                .append(type() == OPT ? dnsClassValue():dnsClass().name()).append('\t')
+                .append(type().name())
+                .append('\t').append(timeToLive());
 
-            DnsMessageUtil.appendRecordClass(buf, dnsClass())
-                          .append(' ')
-                          .append(type.name());
-        } else {
-            buf.append("OPT flags:")
-               .append(timeToLive())
-               .append(" udp:")
-               .append(dnsClass());
+        byte[] bytes = new byte[Math.min(40, content.writerIndex())];
+        content.getBytes(0, bytes);
+        arrayToHexWithChars(result, bytes);
+        if (bytes.length < content.writerIndex()) {
+            result.append("...");
         }
-
-        buf.append(' ')
-           .append(content().readableBytes())
-           .append("B)");
-
-        return buf.toString();
+        return result.toString();
     }
 
     @Override

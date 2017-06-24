@@ -15,48 +15,35 @@
  */
 package io.netty.handler.codec.dns;
 
-import org.junit.Assert;
+import static io.netty.handler.codec.dns.DnsMessageUtil.nameHashCode;
+import static io.netty.handler.codec.dns.DnsMessageUtil.namesEqual;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class AbstractDnsRecordTest {
 
     @Test
-    public void testValidDomainName() {
-        String name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        AbstractDnsRecord record = new AbstractDnsRecord(name, DnsRecordType.A, 0) { };
-        Assert.assertEquals(name + '.', record.name());
+    public void testHashCode() {
+        assertEquals(nameHashCode("netty.io."), nameHashCode("netty.io"));
+        assertNotEquals(nameHashCode("netty.io."), nameHashCode("netty.io.foo"));
+        assertEquals(nameHashCode("netty.io...."), nameHashCode("netty.io"));
+        assertNotEquals(0, nameHashCode("netty.io."));
+        assertNotEquals(0, nameHashCode("netty.i."));
+        assertEquals(0, nameHashCode(""));
+        assertEquals(0, nameHashCode("."));
+        assertEquals(nameHashCode("."), nameHashCode("...."));
     }
 
     @Test
-    public void testValidDomainNameUmlaut() {
-        String name = "ä";
-        AbstractDnsRecord record = new AbstractDnsRecord(name, DnsRecordType.A, 0) { };
-        Assert.assertEquals("xn--4ca.", record.name());
-    }
-
-    @Test
-    public void testValidDomainNameTrailingDot() {
-        String name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.";
-        AbstractDnsRecord record = new AbstractDnsRecord(name, DnsRecordType.A, 0) { };
-        Assert.assertEquals(name, record.name());
-    }
-
-    @Test
-    public void testValidDomainNameUmlautTrailingDot() {
-        String name = "ä.";
-        AbstractDnsRecord record = new AbstractDnsRecord(name, DnsRecordType.A, 0) { };
-        Assert.assertEquals("xn--4ca.", record.name());
-    }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void testValidDomainNameLength() {
-        String name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        new AbstractDnsRecord(name, DnsRecordType.A, 0) { };
-    }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void testValidDomainNameUmlautLength() {
-        String name = "äaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        new AbstractDnsRecord(name, DnsRecordType.A, 0) { };
+    public void testEquals() {
+        assertTrue(namesEqual("netty.io.", "netty.io"));
+        assertTrue(namesEqual("netty.io.", "netty.io..."));
+        assertFalse(namesEqual("netty.io.", "netty.i"));
+        assertFalse(namesEqual("netty.io.", "netty.i."));
+        assertTrue(namesEqual(".", "."));
+        assertTrue(namesEqual("", ""));
     }
 }

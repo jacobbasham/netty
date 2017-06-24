@@ -18,6 +18,7 @@ package io.netty.handler.codec.dns.names;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.handler.codec.dns.DnsDecoderException;
+import io.netty.util.internal.StringUtil;
 import java.nio.charset.UnmappableCharacterException;
 
 /**
@@ -30,7 +31,7 @@ class NonCompressingNameCodec extends NameCodec {
     private final boolean readTrailingDot;
     private final boolean writeTrailingDot;
 
-    public NonCompressingNameCodec(boolean readTrailingDot, boolean writeTrailingDot) {
+    NonCompressingNameCodec(boolean readTrailingDot, boolean writeTrailingDot) {
         this.readTrailingDot = readTrailingDot;
         this.writeTrailingDot = writeTrailingDot;
     }
@@ -60,6 +61,14 @@ class NonCompressingNameCodec extends NameCodec {
             buf.writeByte(0);
             return;
         }
+        // Strip trailing .'s - the write trailing dot param will take care of it
+        while (name.charAt(max - 1) == '.' && max > 1) {
+            max--;
+        }
+        if (max <= 1 && name.charAt(0) == '.') {
+            buf.writeByte(0);
+            return;
+        }
         int lastStart = 0;
         char c = 0;
         int length;
@@ -83,6 +92,7 @@ class NonCompressingNameCodec extends NameCodec {
                 }
                 if (i == max - 1) {
                     // ----
+                    // From the original Netty string reading code:
                     // I am not sure this is spec-compliance so much as emulating the
                     // behavior of String.split(), but it makes the tests pass
                     int old = buf.readerIndex();
@@ -100,5 +110,30 @@ class NonCompressingNameCodec extends NameCodec {
                 }
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        return new StringBuilder(StringUtil.simpleClassName(this))
+                .append("{readTrailingDot=")
+                .append(readTrailingDot)
+                .append(", writeTrailingDot=")
+                .append(writeTrailingDot)
+                .append('}').toString();
+    }
+
+    @Override
+    public boolean readsTrailingDot() {
+        return readTrailingDot;
+    }
+
+    @Override
+    public boolean writesTrailingDot() {
+        return writeTrailingDot;
+    }
+
+    @Override
+    public boolean writesWithPointerCompression() {
+        return false;
     }
 }

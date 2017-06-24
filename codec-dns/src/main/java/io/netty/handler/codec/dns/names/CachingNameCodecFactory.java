@@ -18,7 +18,7 @@ package io.netty.handler.codec.dns.names;
 import io.netty.util.concurrent.FastThreadLocal;
 
 final class CachingNameCodecFactory implements NameCodecFactory {
-        private final FastThreadLocal<NameCodec> writer = new FastThreadLocal<NameCodec>();
+    private final FastThreadLocal<NameCodec> writer = new FastThreadLocal<NameCodec>();
     // StandardNameWriter and CompressingNameCodec delegate to the same defaultRead()
     // method and have no state when reading
     private final NameCodec readInstance;
@@ -26,7 +26,7 @@ final class CachingNameCodecFactory implements NameCodecFactory {
 
     CachingNameCodecFactory(NameCodecFactory other) {
         this.other = other;
-        readInstance = new WriteEnforcingCodecWrapper(other.getForRead(), false);
+        readInstance = new WriteEnforcingCodecWrapper(other.getForRead());
     }
 
     @Override
@@ -38,12 +38,19 @@ final class CachingNameCodecFactory implements NameCodecFactory {
     public NameCodec getForWrite() {
         NameCodec result;
         if (!writer.isSet()) {
-            result = new WriteEnforcingCodecWrapper(other.getForWrite(), true);
-            writer.set(result);
+            result = new WriteEnforcingCodecWrapper(other.getForWrite(), true, this);
+            // We do not call writer.set() here - the wrapper will do it when it is
+            // closed.  Intermediate calls to get a writer should return a new one
+            // (and are a probable bug).  That way we cannot return an in-use codec.
         } else {
             result = writer.get();
         }
         return result;
     }
 
+    void onClose(WriteEnforcingCodecWrapper wrapper) {
+        if (!writer.isSet()) {
+            writer.set(wrapper);
+        }
+    }
 }

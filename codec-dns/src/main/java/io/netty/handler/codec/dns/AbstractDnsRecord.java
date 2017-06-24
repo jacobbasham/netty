@@ -15,14 +15,14 @@
  */
 package io.netty.handler.codec.dns;
 
+import static io.netty.handler.codec.dns.DnsMessageUtil.nameHashCode;
+import static io.netty.handler.codec.dns.DnsMessageUtil.namesEqual;
 import io.netty.handler.codec.dns.names.InvalidDomainNameException;
 import io.netty.handler.codec.dns.names.NameCodec;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.UnstableApi;
 
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
-import static io.netty.util.internal.StringUtil.charSequenceHashCode;
-import static io.netty.util.internal.StringUtil.charSequencesEqual;
 import java.nio.charset.UnmappableCharacterException;
 
 /**
@@ -99,7 +99,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
             throw new IllegalArgumentException(ex);
         }
 
-        this.name = name;
+        this.name = checkNotNull(name, "name");
         this.type = checkNotNull(type, "type");
         this.dnsClass = dnsClass;
         this.timeToLive = (int) timeToLive;
@@ -133,7 +133,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
 
     @Override
     public long timeToLive() {
-        return (long) timeToLive & 0x00000000ffffffffL;
+        return (long) timeToLive & 0xffffffffL;
     }
 
     @Override
@@ -151,14 +151,14 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         return type().intValue() == that.type().intValue()
                 && dnsClassValue() == that.dnsClassValue()
                 && timeToLive() == that.timeToLive()
-                && charSequencesEqual(name(), that.name(), true);
+                && namesEqual(name(), that.name());
     }
 
     @Override
     public int hashCode() {
         int hash = 7;
-        hash = 67 * hash + (this.name != null ? charSequenceHashCode(name(), true) : 0);
-        hash = 67 * hash + (this.type != null ? this.type.hashCode() : 0);
+        hash = 67 * hash + nameHashCode(name);
+        hash = 67 * hash + type.hashCode();
         hash = 67 * hash + this.dnsClass;
         hash = 67 * hash + (int) (this.timeToLive ^ (this.timeToLive >>> 32));
         return hash;

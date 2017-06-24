@@ -17,16 +17,19 @@ package io.netty.handler.codec.dns;
 
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.internal.UnstableApi;
+import java.util.ArrayList;
+import java.util.Collections;
 
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Represents a DNS record type.
  */
 @UnstableApi
-public class DnsRecordType implements Comparable<DnsRecordType> {
+public final class DnsRecordType implements Comparable<DnsRecordType> {
 
     /**
      * Address record RFC 1035 Returns a 32-bit IPv4 address, most commonly used
@@ -274,6 +277,16 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
     public static final DnsRecordType AXFR = new DnsRecordType(0x00fc, "AXFR");
 
     /**
+     * A question record type - request mailbox-related info. Obsolete but needed to implement NSEC completely.
+     */
+    public static final DnsRecordType MAILB = new DnsRecordType(0x00fd, "MAILB");
+
+    /**
+     * A question record type - request for a mail agent. Obsolete, but needed to implement NSEC completely.
+     */
+    public static final DnsRecordType MAILA = new DnsRecordType(0x00fe, "MAILA");
+
+    /**
      * All cached records RFC 1035 Returns all records of all types known to the
      * name server. If the name server does not have any information on the
      * name, the request will be forwarded on. The records returned may not be
@@ -282,13 +295,19 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
      * returned. Sometimes referred to as ANY, for example in Windows nslookup
      * and Wireshark.
      */
-    public static final DnsRecordType ANY = new DnsRecordType(0x00ff, "ANY");
+    public static final DnsRecordType ANY = new DnsRecordType(0x00ff, "*");
 
     /**
      * Certification Authority Authorization record RFC 6844 CA pinning,
      * constraining acceptable CAs for a host/domain.
      */
     public static final DnsRecordType CAA = new DnsRecordType(0x0101, "CAA");
+
+    /**
+     * URI record type described in
+     * <a href="http://www.rfc-editor.org/rfc/rfc7553.txt">RFC 7553</a>.
+     */
+    public static final DnsRecordType URI = new DnsRecordType(0x0100, "URI");
 
     /**
      * DNSSEC Trust Authorities record N/A Part of a deployment proposal for
@@ -306,38 +325,31 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
 
     private static final Map<String, DnsRecordType> BY_NAME;
     private static final IntObjectHashMap<DnsRecordType> BY_TYPE;
-    private static final String EXPECTED;
 
     static {
         DnsRecordType[] all = {
             A, NS, CNAME, SOA, PTR, MX, TXT, RP, AFSDB, SIG, KEY, AAAA, LOC, SRV, NAPTR, KX, CERT, DNAME, OPT, APL,
             DS, SSHFP, IPSECKEY, RRSIG, NSEC, DNSKEY, DHCID, NSEC3, NSEC3PARAM, TLSA, HIP, SPF, TKEY, TSIG, IXFR,
-            AXFR, ANY, CAA, TA, DLV
+            AXFR, ANY, CAA, TA, DLV, MAILA, MAILB, URI
         };
 
         BY_NAME = new HashMap<String, DnsRecordType>(all.length);
         BY_TYPE = new IntObjectHashMap<DnsRecordType>(all.length);
 
-        final StringBuilder expected = new StringBuilder(512);
-
-        expected.append(" (expected: ");
         for (DnsRecordType type : all) {
             BY_NAME.put(type.name(), type);
             BY_TYPE.put(type.intValue(), type);
-
-            expected.append(type.name()).append(',');
-//            expected.append(type.name())
-//                    .append('(')
-//                    .append(type.intValue())
-//                    .append("), ");
         }
-
-        expected.setLength(expected.length() - 2);
-        expected.append(')');
-        EXPECTED = expected.toString();
     }
 
+    /**
+     * Look up a record type by number.  Returns a constant value if the
+     * number is a known type; otherwise returns a newly created type.
+     */
     public static DnsRecordType valueOf(int intValue) {
+        if (intValue > 1 << 16) {
+            throw new IllegalArgumentException("> 2 byte value: " + Integer.toHexString(intValue));
+        }
         DnsRecordType result = BY_TYPE.get(intValue);
         if (result == null) {
             return new DnsRecordType(intValue);
@@ -345,6 +357,19 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
         return result;
     }
 
+    /**
+     * Returns true if this record type is defined in an RFC and implemented
+     * as a constant on this class.
+     */
+    public boolean isStandardType() {
+        return BY_TYPE.containsKey(intValue);
+    }
+
+    /**
+     * Look up a constant by name.
+     *
+     * @throws IllegalArgumentException if the name is not known
+     */
     public static DnsRecordType valueOf(String name) {
         if (name == null) {
             throw new NullPointerException("name");
@@ -352,9 +377,11 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
         DnsRecordType result = BY_NAME.get(name);
         if (result == null) {
             StringBuilder sb = new StringBuilder("name: ").append(name).append(" (expected one of ");
-            for (Iterator<Map.Entry<String, DnsRecordType>> it = BY_NAME.entrySet().iterator(); it.hasNext();) {
-                Map.Entry<String, DnsRecordType> e = it.next();
-                sb.append('"').append(e.getKey()).append('"');
+            List<String> names = new ArrayList<String>(BY_NAME.keySet());
+            Collections.sort(names);
+            for (Iterator<String> it = names.iterator(); it.hasNext();) {
+                String existingName = it.next();
+                sb.append('"').append(existingName).append('"');
                 if (it.hasNext()) {
                     sb.append(',');
                 }
@@ -366,13 +393,12 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
 
     private final int intValue;
     private final String name;
-    private String text;
 
     private DnsRecordType(int intValue) {
-        this(intValue, "UNKNOWN");
+        this(intValue, "TYPE" + intValue);
     }
 
-    public DnsRecordType(int intValue, String name) {
+    private DnsRecordType(int intValue, String name) {
         if ((intValue & 0xffff) != intValue) {
             throw new IllegalArgumentException("intValue: " + intValue + " (expected: 0 ~ 65535)");
         }
@@ -394,9 +420,35 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
         return intValue;
     }
 
+    /**
+     * Returns true if this type is a meta-type according to
+     * <a href="https://tools.ietf.org/html/rfc2929#section-3.1">RFC 2929</a>.
+     */
+    public boolean isMetaType() {
+        return equals(OPT) || equals(TSIG) || equals(TKEY);
+    }
+
+    /**
+     * Returns true if this type is a question-type according to
+     * <a href="https://tools.ietf.org/html/rfc2929#section-3.1">RFC 2929</a>.
+     */
+    public boolean isQType() {
+        return equals(ANY) || equals(MAILA) || equals(MAILB) || equals(AXFR) || equals(IXFR);
+    }
+
+    /**
+     * Returns true if this type is a meta-type question-type according to
+     * <a href="https://tools.ietf.org/html/rfc2929#section-3.1">RFC 2929</a>,
+     * <i>also checking if the integer value is with the 128-255 reserved range for new meta types and question
+     * types</i>.  Used in particular for determining if a type is legal in an NSEC record.
+     */
+    public boolean isMetaTypeOrQType() {
+        return (intValue >= 128 && intValue <= 255) || isMetaType() || isQType();
+    }
+
     @Override
     public int hashCode() {
-        return intValue;
+        return intValue * 73;
     }
 
     @Override
@@ -406,15 +458,11 @@ public class DnsRecordType implements Comparable<DnsRecordType> {
 
     @Override
     public int compareTo(DnsRecordType o) {
-        return intValue() - o.intValue();
+        return intValue == o.intValue ? 0 : intValue < o.intValue ? -1 : 1;
     }
 
     @Override
     public String toString() {
-        String text = this.text;
-        if (text == null) {
-            this.text = text = name + '(' + intValue() + ')';
-        }
-        return text;
+        return name;
     }
 }

@@ -80,7 +80,7 @@ public class DnsMessageEncoderTest {
                 = new DefaultAddressedEnvelope<DefaultDnsResponse, InetSocketAddress>(expect, SENDER, RECIPIENT);
 
         ByteBuf buf = Unpooled.buffer();
-        enc.encode(expect, buf, NameCodec.basicNameCodec(), 4096);
+        enc.encode(expect, buf, NameCodec.nonCompressingNameCodec(), 4096);
 
         DnsResponse got = dec.decode(buf, SENDER, RECIPIENT);
         for (DnsSection sect : DnsSection.values()) {
@@ -174,7 +174,7 @@ public class DnsMessageEncoderTest {
 
         buf.resetReaderIndex();
         encoded = Unpooled.buffer();
-        nonMdnsEnc.encode(resp, encoded, NameCodec.basicNameCodec(), 1024);
+        nonMdnsEnc.encode(resp, encoded, NameCodec.nonCompressingNameCodec(), 1024);
         decoded = nonMdnsDec.decode(encoded, SENDER, RECIPIENT);
         question = (DnsQuestion) decoded.recordAt(DnsSection.QUESTION);
         record = decoded.recordAt(DnsSection.ANSWER);

@@ -37,6 +37,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.core.StringContains.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
@@ -72,7 +73,7 @@ public class SearchDomainTest {
     }
 
     @Test
-    public void testResolve() throws Exception {
+    public void testResolve() throws Throwable {
         Set<String> domains = new HashSet<String>();
         domains.add("host1.foo.com");
         domains.add("host1");
@@ -119,7 +120,7 @@ public class SearchDomainTest {
     }
 
     @Test
-    public void testResolveAll() throws Exception {
+    public void testResolveAll() throws Throwable {
         Set<String> domains = new HashSet<String>();
         domains.add("host1.foo.com");
         domains.add("host1");
@@ -166,7 +167,7 @@ public class SearchDomainTest {
     }
 
     @Test
-    public void testMultipleSearchDomain() throws Exception {
+    public void testMultipleSearchDomain() throws Throwable {
         Set<String> domains = new HashSet<String>();
         domains.add("host1.foo.com");
         domains.add("host2.bar.com");
@@ -196,7 +197,7 @@ public class SearchDomainTest {
     }
 
     @Test
-    public void testSearchDomainWithNdots2() throws Exception {
+    public void testSearchDomainWithNdots2() throws Throwable {
         Set<String> domains = new HashSet<String>();
         domains.add("host1.sub.foo.com");
         domains.add("host2.sub.foo.com");
@@ -217,7 +218,7 @@ public class SearchDomainTest {
     }
 
     @Test
-    public void testSearchDomainWithNdots0() throws Exception {
+    public void testSearchDomainWithNdots0() throws Throwable {
         Set<String> domains = new HashSet<String>();
         domains.add("host1");
         domains.add("host1.foo.com");
@@ -254,17 +255,27 @@ public class SearchDomainTest {
         assertFalse(fut.isSuccess());
     }
 
-    private String assertResolve(DnsNameResolver resolver, String inetHost) throws InterruptedException {
+    private String assertResolve(DnsNameResolver resolver, String inetHost) throws Throwable {
         Future<InetAddress> fut = resolver.resolve(inetHost);
         assertTrue(fut.await(10, TimeUnit.SECONDS));
-        return fut.getNow().getHostAddress();
+        if (!fut.isSuccess() && fut.cause() != null) {
+            throw fut.cause();
+        }
+        InetAddress address = fut.getNow();
+        assertNotNull("Address is null", address);
+        return address.getHostAddress();
     }
 
-    private List<String> assertResolveAll(DnsNameResolver resolver, String inetHost) throws InterruptedException {
+    private List<String> assertResolveAll(DnsNameResolver resolver, String inetHost) throws Throwable {
         Future<List<InetAddress>> fut = resolver.resolveAll(inetHost);
         assertTrue(fut.await(10, TimeUnit.SECONDS));
+        if (!fut.isSuccess() && fut.cause() != null) {
+            throw fut.cause();
+        }
         List<String> list = new ArrayList<String>();
-        for (InetAddress addr : fut.getNow()) {
+        List<InetAddress> addresses = fut.getNow();
+        assertNotNull("Future returned null", addresses);
+        for (InetAddress addr : addresses) {
             list.add(addr.getHostAddress());
         }
         return list;

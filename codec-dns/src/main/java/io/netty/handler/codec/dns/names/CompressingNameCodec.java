@@ -18,6 +18,7 @@ package io.netty.handler.codec.dns.names;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.handler.codec.dns.DnsDecoderException;
+import io.netty.util.internal.StringUtil;
 import java.nio.charset.UnmappableCharacterException;
 import java.util.HashMap;
 import java.util.Map;
@@ -113,5 +114,30 @@ class CompressingNameCodec extends NameCodec {
                 }
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        return new StringBuilder(StringUtil.simpleClassName(this))
+                .append("{readTrailingDot=")
+                .append(readTrailingDot)
+                .append(", writeTrailingDot=")
+                .append(writeTrailingDot)
+                .append('}').toString();
+    }
+
+    @Override
+    public boolean readsTrailingDot() {
+        return readTrailingDot;
+    }
+
+    @Override
+    public boolean writesTrailingDot() {
+        return writeTrailingDot;
+    }
+
+    @Override
+    public boolean writesWithPointerCompression() {
+        return true;
     }
 }

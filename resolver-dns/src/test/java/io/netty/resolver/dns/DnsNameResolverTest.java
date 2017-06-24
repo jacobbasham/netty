@@ -853,6 +853,7 @@ public class DnsNameResolverTest {
                 assertNull(nsCache.cache.get("io.", null));
                 assertNull(nsCache.cache.get("netty.io.", null));
                 List<DnsCacheEntry> entries = nsCache.cache.get("record.netty.io.", null);
+                assertNotNull(entries);
                 assertEquals(1, entries.size());
 
                 assertNull(nsCache.cache.get(hostname, null));

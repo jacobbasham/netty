@@ -127,8 +127,7 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
             checkNotNull(msgs, "msgs");
             NameCodecFactory factory;
             if (!nameFeatures.isEmpty()) {
-                factory = NameCodec.factory(nameFeatures.toArray(
-                        new NameCodecFeature[nameFeatures.size()]));
+                factory = NameCodec.factory(EnumSet.copyOf(nameFeatures));
             } else {
                 factory = NameCodec.compressingFactory();
             }
@@ -194,6 +193,13 @@ public final class DnsMessageDecoder<M extends DnsMessage> {
          * trailing dot. Specifying anything here overrides that default.
          */
         public MessageDecoderBuilder withNameFeatures(NameCodecFeature... features) {
+            checkNotNull(features, "features");
+            for (int i = 0; i < features.length; i++) {
+                if (features[i] == null) {
+                    throw new NullPointerException("Null element at " + i + " in "
+                        + Arrays.asList(features));
+                }
+            }
             nameFeatures.addAll(Arrays.asList(features));
             return this;
         }

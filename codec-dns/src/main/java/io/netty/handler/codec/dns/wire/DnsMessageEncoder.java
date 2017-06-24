@@ -151,7 +151,7 @@ public class DnsMessageEncoder {
         public DnsMessageEncoder build() {
             NameCodecFactory factory;
             if (!nameFeatures.isEmpty()) {
-                factory = NameCodec.factory(nameFeatures.toArray(new NameCodecFeature[nameFeatures.size()]));
+                factory = NameCodec.factory(nameFeatures);
             } else {
                 factory = NameCodec.compressingFactory();
             }
@@ -242,6 +242,13 @@ public class DnsMessageEncoder {
          * trailing dot. Specifying anything here overrides that default.
          */
         public MessageEncoderBuilder withNameFeatures(NameCodecFeature... features) {
+            checkNotNull(features, "features");
+            for (int i = 0; i < features.length; i++) {
+                if (features[i] == null) {
+                    throw new NullPointerException("Null element at " + i + " in "
+                        + Arrays.asList(features));
+                }
+            }
             nameFeatures.addAll(Arrays.asList(features));
             return this;
         }
@@ -555,7 +562,7 @@ public class DnsMessageEncoder {
                             codecToUse = NameCodec.get(NameCodecFeature.WRITE_TRAILING_DOT,
                                     NameCodecFeature.MDNS_UTF_8);
                         } else {
-                            codecToUse = NameCodec.basicNameCodec();
+                            codecToUse = NameCodec.nonCompressingNameCodec();
                         }
                     }
                     encoder.encodeRecord(codecToUse, record, into, maxSize);

@@ -16,26 +16,8 @@
 package io.netty.handler.codec.dns.names;
 
 /**
- * Wraps another factory's codec with a punycode interpreting one.
+ * Codec that wraps another - used to determine what features are supported through layers of delegation.
  */
-final class PunycodeNameCodecFactory implements NameCodecFactory {
-
-    final NameCodecFactory delegate;
-    private final NameCodec forReads;
-
-    public PunycodeNameCodecFactory(NameCodecFactory delegate) {
-        this.delegate = delegate;
-        forReads = delegate.getForRead().toPunycodeNameCodec();
-    }
-
-    @Override
-    public NameCodec getForRead() {
-        return forReads;
-    }
-
-    @Override
-    public NameCodec getForWrite() {
-        return delegate.getForWrite().toPunycodeNameCodec();
-    }
-
+interface WrapperCodec {
+    NameCodec delegate();
 }
