@@ -439,7 +439,7 @@ public abstract class AbstractDnsMessage<M extends ReferenceCounted & DnsMessage
     public int hashCode() {
         int hash = 7;
         hash = 83 * hash + this.id;
-        hash = 83 * hash + (this.flags != null ? this.flags.hashCode() : 0);
+        hash = 83 * hash + this.flags.value();
         return hash;
     }
 

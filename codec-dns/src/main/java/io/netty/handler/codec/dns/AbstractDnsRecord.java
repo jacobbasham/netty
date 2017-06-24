@@ -30,7 +30,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
 
     private final CharSequence name;
     private final DnsRecordType type;
-    private final int dnsClass;
+    private final short dnsClass;
     private final int timeToLive;
     private final boolean isUnicastResponse;
 
@@ -76,7 +76,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
         }
         this.name = checkNotNull(name, "name");
         this.type = checkNotNull(type, "type");
-        this.dnsClass = dnsClass;
+        this.dnsClass = (short) dnsClass;
         this.timeToLive = (int) timeToLive;
         this.isUnicastResponse = isUnicastResponse;
     }
@@ -103,7 +103,7 @@ public abstract class AbstractDnsRecord implements DnsRecord {
 
     @Override
     public int dnsClassValue() {
-        return dnsClass;
+        return dnsClass & 0xFFFF;
     }
 
     @Override
