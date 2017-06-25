@@ -179,7 +179,7 @@ final class DnsMessageUtil {
     }
 
     private static void appendChar(byte value, StringBuilder into) {
-        into.append('\'').append((char) value & 0xFF).append('\'');
+        into.append('\'').append((char) (value & 0xFF)).append('\'');
     }
 
     private static boolean isPrintableChar(byte value) {

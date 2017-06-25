@@ -19,6 +19,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.util.concurrent.Future;
+import java.io.IOException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -243,13 +244,13 @@ public class SearchDomainTest {
         assertEquals(store.getAddress("host2.foo.com"), resolved);
     }
 
-    private void assertNotResolve(DnsNameResolver resolver, String inetHost) throws InterruptedException {
+    private void assertNotResolve(DnsNameResolver resolver, String inetHost) throws Throwable {
         Future<InetAddress> fut = resolver.resolve(inetHost);
         assertTrue(fut.await(10, TimeUnit.SECONDS));
         assertFalse(fut.isSuccess());
     }
 
-    private void assertNotResolveAll(DnsNameResolver resolver, String inetHost) throws InterruptedException {
+    private void assertNotResolveAll(DnsNameResolver resolver, String inetHost) throws Throwable {
         Future<List<InetAddress>> fut = resolver.resolveAll(inetHost);
         assertTrue(fut.await(10, TimeUnit.SECONDS));
         assertFalse(fut.isSuccess());
@@ -259,7 +260,7 @@ public class SearchDomainTest {
         Future<InetAddress> fut = resolver.resolve(inetHost);
         assertTrue(fut.await(10, TimeUnit.SECONDS));
         if (!fut.isSuccess() && fut.cause() != null) {
-            throw fut.cause();
+            throw new IOException(fut.cause());
         }
         InetAddress address = fut.getNow();
         assertNotNull("Address is null", address);
@@ -270,7 +271,7 @@ public class SearchDomainTest {
         Future<List<InetAddress>> fut = resolver.resolveAll(inetHost);
         assertTrue(fut.await(10, TimeUnit.SECONDS));
         if (!fut.isSuccess() && fut.cause() != null) {
-            throw fut.cause();
+            throw new IOException(fut.cause());
         }
         List<String> list = new ArrayList<String>();
         List<InetAddress> addresses = fut.getNow();
