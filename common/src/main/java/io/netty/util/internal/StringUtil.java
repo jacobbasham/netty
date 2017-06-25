@@ -50,16 +50,16 @@ public final class StringUtil {
     static {
         // Generate the lookup table that converts a byte into a 2-digit hexadecimal integer.
         int i;
-        for (i = 0; i < 10; i ++) {
+        for (i = 0; i < 10; i++) {
             BYTE2HEX_PAD[i] = "0" + i;
             BYTE2HEX_NOPAD[i] = String.valueOf(i);
         }
-        for (; i < 16; i ++) {
+        for (; i < 16; i++) {
             char c = (char) ('a' + i - 10);
             BYTE2HEX_PAD[i] = "0" + c;
             BYTE2HEX_NOPAD[i] = String.valueOf(c);
         }
-        for (; i < BYTE2HEX_PAD.length; i ++) {
+        for (; i < BYTE2HEX_PAD.length; i++) {
             String str = Integer.toHexString(i);
             BYTE2HEX_PAD[i] = str;
             BYTE2HEX_NOPAD[i] = str;
@@ -86,8 +86,8 @@ public final class StringUtil {
     /**
      * Checks if two strings have the same suffix of specified length
      *
-     * @param s            string
-     * @param p            string
+     * @param s   string
+     * @param p   string
      * @param len length of the common suffix
      * @return true if both s and p are not null and both have the same suffix. Otherwise - false
      */
@@ -140,7 +140,7 @@ public final class StringUtil {
      */
     public static <T extends Appendable> T toHexStringPadded(T dst, byte[] src, int offset, int length) {
         final int end = offset + length;
-        for (int i = offset; i < end; i ++) {
+        for (int i = offset; i < end; i++) {
             byteToHexStringPadded(dst, src[i]);
         }
         return dst;
@@ -200,13 +200,13 @@ public final class StringUtil {
         int i;
 
         // Skip preceding zeroes.
-        for (i = offset; i < endMinusOne; i ++) {
+        for (i = offset; i < endMinusOne; i++) {
             if (src[i] != 0) {
                 break;
             }
         }
 
-        byteToHexString(dst, src[i ++]);
+        byteToHexString(dst, src[i++]);
         int remaining = end - i;
         toHexStringPadded(dst, src, i, remaining);
 
@@ -488,6 +488,7 @@ public final class StringUtil {
     /**
      * Determine if {@code c} lies within the range of values defined for
      * <a href="http://unicode.org/glossary/#surrogate_code_point">Surrogate Code Point</a>.
+     *
      * @param c the character to check.
      * @return {@code true} if {@code c} lies within the range of values defined for
      * <a href="http://unicode.org/glossary/#surrogate_code_point">Surrogate Code Point</a>. {@code false} otherwise.

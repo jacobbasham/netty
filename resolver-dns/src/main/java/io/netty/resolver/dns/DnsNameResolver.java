@@ -40,8 +40,6 @@ import io.netty.handler.codec.dns.DnsRawRecord;
 import io.netty.handler.codec.dns.DnsRecord;
 import io.netty.handler.codec.dns.DnsRecordType;
 import io.netty.handler.codec.dns.DnsResponse;
-import io.netty.handler.codec.dns.wire.DnsMessageDecoder;
-import io.netty.handler.codec.dns.wire.DnsMessageEncoder;
 import io.netty.resolver.HostsFileEntriesResolver;
 import io.netty.resolver.InetNameResolver;
 import io.netty.resolver.ResolvedAddressTypes;
@@ -67,10 +65,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
-import static io.netty.handler.codec.dns.names.NameCodecFeature.COMPRESSION;
-import static io.netty.handler.codec.dns.names.NameCodecFeature.PUNYCODE;
-import static io.netty.handler.codec.dns.names.NameCodecFeature.READ_TRAILING_DOT;
-import static io.netty.handler.codec.dns.names.NameCodecFeature.WRITE_TRAILING_DOT;
 import static io.netty.resolver.dns.DefaultDnsServerAddressStreamProvider.DNS_PORT;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import static io.netty.util.internal.ObjectUtil.checkPositive;
@@ -139,13 +133,8 @@ public class DnsNameResolver extends InetNameResolver {
         DEFAULT_SEARCH_DOMAINS = searchDomains;
     }
 
-    MessageToMessageDecoder<DatagramPacket> DECODER = DnsMessageDecoder.builder()
-            .withNameFeatures(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT, PUNYCODE)
-            .buildUdpResponseDecoder();
-    MessageToMessageEncoder<AddressedEnvelope<DnsQuery<?>, InetSocketAddress>> ENCODER
-            = DnsMessageEncoder.builder()
-                    .withNameFeatures(COMPRESSION, READ_TRAILING_DOT, WRITE_TRAILING_DOT, PUNYCODE)
-                    .buildUdpQueryEncoder();
+    private final MessageToMessageDecoder<DatagramPacket> DECODER;
+    private final MessageToMessageEncoder<AddressedEnvelope<DnsQuery<?>, InetSocketAddress>> ENCODER;
 
     final Future<Channel> channelFuture;
     final DatagramChannel ch;
@@ -185,7 +174,6 @@ public class DnsNameResolver extends InetNameResolver {
     private final boolean supportsARecords;
     private final InternetProtocolFamily preferredAddressType;
     private final DnsRecordType[] resolveRecordTypes;
-    private final boolean decodeIdn;
     private final DnsQueryLifecycleObserverFactory dnsQueryLifecycleObserverFactory;
 
     /**
@@ -209,8 +197,8 @@ public class DnsNameResolver extends InetNameResolver {
      *                                       servers for each hostname lookup.
      * @param searchDomains the list of search domain
      * @param ndots the ndots value
-     * @param decodeIdn {@code true} if domain / host names should be decoded to unicode when received.
-     *                        See <a href="https://tools.ietf.org/html/rfc3492">rfc3492</a>.
+     * @param decoder the packet decoder
+     * @param encoder the packet encoder
      */
     public DnsNameResolver(
             EventLoop eventLoop,
@@ -229,7 +217,9 @@ public class DnsNameResolver extends InetNameResolver {
             DnsServerAddressStreamProvider dnsServerAddressStreamProvider,
             String[] searchDomains,
             int ndots,
-            boolean decodeIdn) {
+            MessageToMessageDecoder<DatagramPacket> decoder,
+            MessageToMessageEncoder<AddressedEnvelope<DnsQuery<?>, InetSocketAddress>> encoder
+            ) {
         super(eventLoop);
         this.queryTimeoutMillis = checkPositive(queryTimeoutMillis, "queryTimeoutMillis");
         this.resolvedAddressTypes = resolvedAddressTypes != null ? resolvedAddressTypes : DEFAULT_RESOLVE_ADDRESS_TYPES;
@@ -247,7 +237,8 @@ public class DnsNameResolver extends InetNameResolver {
                 checkNotNull(dnsQueryLifecycleObserverFactory, "dnsQueryLifecycleObserverFactory");
         this.searchDomains = checkNotNull(searchDomains, "searchDomains").clone();
         this.ndots = checkPositiveOrZero(ndots, "ndots");
-        this.decodeIdn = decodeIdn;
+        this.DECODER = decoder;
+        this.ENCODER = encoder;
 
         switch (this.resolvedAddressTypes) {
             case IPV4_ONLY:
@@ -380,10 +371,6 @@ public class DnsNameResolver extends InetNameResolver {
 
     final DnsRecordType[] resolveRecordTypes() {
         return resolveRecordTypes;
-    }
-
-    final boolean isDecodeIdn() {
-        return decodeIdn;
     }
 
     /**

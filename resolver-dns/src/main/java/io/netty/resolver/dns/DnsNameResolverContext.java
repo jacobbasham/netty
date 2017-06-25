@@ -40,7 +40,6 @@ import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.ThrowableUtil;
 
-import java.net.IDN;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -517,8 +516,7 @@ abstract class DnsNameResolverContext<T> {
         content.getBytes(content.readerIndex(), addrBytes);
 
         try {
-            return InetAddress.getByAddress(
-                    parent.isDecodeIdn() ? IDN.toUnicode(name) : name, addrBytes);
+            return InetAddress.getByAddress(name, addrBytes);
         } catch (UnknownHostException e) {
             // Should never reach here.
             throw new Error(e);

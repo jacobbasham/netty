@@ -24,9 +24,13 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.ReflectiveChannelFactory;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramChannel;
+import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.InternetProtocolFamily;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.handler.codec.MessageToMessageDecoder;
+import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.handler.codec.dns.DefaultDnsQuestion;
+import io.netty.handler.codec.dns.DnsQuery;
 import io.netty.handler.codec.dns.DnsQuestion;
 import io.netty.handler.codec.dns.DnsRecord;
 import io.netty.handler.codec.dns.DnsRecordType;
@@ -77,6 +81,12 @@ import java.util.concurrent.TimeUnit;
 import static io.netty.handler.codec.dns.DnsRecordType.A;
 import static io.netty.handler.codec.dns.DnsRecordType.AAAA;
 import static io.netty.handler.codec.dns.DnsRecordType.CNAME;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.COMPRESSION;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.PUNYCODE;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.WRITE_TRAILING_DOT;
+import io.netty.handler.codec.dns.wire.DnsMessageDecoder;
+import io.netty.handler.codec.dns.wire.DnsMessageEncoder;
 import static io.netty.resolver.dns.DefaultDnsServerAddressStreamProvider.DNS_PORT;
 import static io.netty.resolver.dns.DnsServerAddresses.sequential;
 import static org.hamcrest.Matchers.greaterThan;
@@ -297,6 +307,7 @@ public class DnsNameResolverTest {
                 .dnsQueryLifecycleObserverFactory(new TestRecursiveCacheDnsQueryLifecycleObserverFactory())
                 .channelType(NioDatagramChannel.class)
                 .maxQueriesPerResolve(1)
+                .searchDomains(Collections.<String>emptySet())
                 .decodeIdn(decodeToUnicode)
                 .optResourceEnabled(false);
 
@@ -814,12 +825,22 @@ public class DnsNameResolverTest {
         TestRecursiveCacheDnsQueryLifecycleObserverFactory lifecycleObserverFactory =
                 new TestRecursiveCacheDnsQueryLifecycleObserverFactory();
         EventLoopGroup group = new NioEventLoopGroup(1);
+        MessageToMessageDecoder<DatagramPacket> decoder = DnsMessageDecoder
+                .builder()
+                .withNameFeatures(READ_TRAILING_DOT, WRITE_TRAILING_DOT, COMPRESSION, PUNYCODE)
+                .buildUdpResponseDecoder();
+
+        MessageToMessageEncoder<AddressedEnvelope<DnsQuery<?>, InetSocketAddress>> encoder =
+                DnsMessageEncoder.builder()
+                .withNameFeatures(READ_TRAILING_DOT, WRITE_TRAILING_DOT, COMPRESSION, PUNYCODE)
+                .buildUdpQueryEncoder();
+
         DnsNameResolver resolver = new DnsNameResolver(
                 group.next(), new ReflectiveChannelFactory<DatagramChannel>(NioDatagramChannel.class),
                 NoopDnsCache.INSTANCE, nsCache, lifecycleObserverFactory, 3000, ResolvedAddressTypes.IPV4_ONLY, true,
                 10, true, 4096, false, HostsFileEntriesResolver.DEFAULT,
                 new SingletonDnsServerAddressStreamProvider(dnsServer.localAddress()),
-                DnsNameResolver.DEFAULT_SEARCH_DOMAINS, 0, true) {
+                new String[0], 0, decoder, encoder) {
             @Override
             int dnsRedirectPort(InetAddress server) {
                 return server.equals(dnsServerAuthority.localAddress().getAddress()) ?

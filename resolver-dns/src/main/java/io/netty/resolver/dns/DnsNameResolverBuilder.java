@@ -20,6 +20,14 @@ import io.netty.channel.EventLoop;
 import io.netty.channel.ReflectiveChannelFactory;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.InternetProtocolFamily;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.COMPRESSION;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.PUNYCODE;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.READ_TRAILING_DOT;
+import static io.netty.handler.codec.dns.names.NameCodecFeature.WRITE_TRAILING_DOT;
+import io.netty.handler.codec.dns.wire.DnsMessageDecoder;
+import io.netty.handler.codec.dns.wire.DnsMessageDecoder.MessageDecoderBuilder;
+import io.netty.handler.codec.dns.wire.DnsMessageEncoder;
+import io.netty.handler.codec.dns.wire.DnsMessageEncoder.MessageEncoderBuilder;
 import io.netty.resolver.HostsFileEntriesResolver;
 import io.netty.resolver.ResolvedAddressTypes;
 import io.netty.util.internal.UnstableApi;
@@ -57,6 +65,12 @@ public final class DnsNameResolverBuilder {
     private String[] searchDomains = DnsNameResolver.DEFAULT_SEARCH_DOMAINS;
     private int ndots = 1;
     private boolean decodeIdn = true;
+    private final MessageEncoderBuilder encoderBuilder = DnsMessageEncoder
+            .builder()
+            .withNameFeatures(READ_TRAILING_DOT, WRITE_TRAILING_DOT, COMPRESSION);
+    private final MessageDecoderBuilder decoderBuilder = DnsMessageDecoder
+            .builder()
+            .withNameFeatures(READ_TRAILING_DOT, WRITE_TRAILING_DOT, COMPRESSION);
 
     /**
      * Creates a new builder.
@@ -247,6 +261,11 @@ public final class DnsNameResolverBuilder {
      * @return {@code this}
      */
     public DnsNameResolverBuilder maxPayloadSize(int maxPayloadSize) {
+        encoderBuilder.withMaxPacketSize(maxPayloadSize);
+        // Set the hard limit if a response's EDNS UDP packet size specifies
+        // a larger value than the max set here.  Pretty much impossible to
+        // hit with dns *queries* anyway.
+        encoderBuilder.withAbsoluteMaxBufferSize(maxPayloadSize * 2);
         this.maxPayloadSize = maxPayloadSize;
         return this;
     }
@@ -337,6 +356,10 @@ public final class DnsNameResolverBuilder {
      * @return {@code this}
      */
     public DnsNameResolverBuilder decodeIdn(boolean decodeIdn) {
+        if (decodeIdn) {
+            encoderBuilder.withNameFeatures(PUNYCODE);
+            decoderBuilder.withNameFeatures(PUNYCODE);
+        }
         this.decodeIdn = decodeIdn;
         return this;
     }
@@ -375,6 +398,7 @@ public final class DnsNameResolverBuilder {
                 dnsServerAddressStreamProvider,
                 searchDomains,
                 ndots,
-                decodeIdn);
+                decoderBuilder.buildUdpResponseDecoder(),
+                encoderBuilder.buildUdpQueryEncoder());
     }
 }
